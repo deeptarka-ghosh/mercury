@@ -25,7 +25,7 @@ export interface ShippingInput {
   city: string;
   state: string;
   postalCode: string;
-  countryCode?: string;
+  countryCode: string;
   phone?: string;
 }
 
@@ -126,6 +126,9 @@ function validateShippingInput(input: ShippingInput): void {
     errors.push('postalCode must be at most 20 characters');
   }
 
+  if (!input.countryCode || input.countryCode.trim().length === 0) {
+    errors.push('countryCode is required');
+  }
   if (input.countryCode && input.countryCode.length > 3) {
     errors.push('countryCode must be at most 3 characters');
   }
@@ -205,7 +208,7 @@ export async function createShipping(
         ${input.city.trim()},
         ${input.state.trim()},
         ${input.postalCode.trim()},
-        ${input.countryCode ? input.countryCode.trim() : 'US'},
+        ${input.countryCode.trim()},
         ${input.phone ? input.phone.trim() : null},
         now(), now()
       )
@@ -297,7 +300,7 @@ export async function updateShipping(
         city = ${input.city.trim()},
         state = ${input.state.trim()},
         postal_code = ${input.postalCode.trim()},
-        country_code = ${input.countryCode ? input.countryCode.trim() : 'US'},
+        country_code = ${input.countryCode.trim()},
         phone = ${input.phone ? input.phone.trim() : null},
         updated_at = now()
       WHERE id = ${existing.id}

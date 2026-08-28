@@ -13,7 +13,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       city VARCHAR(120) NOT NULL,
       state VARCHAR(120) NOT NULL,
       postal_code VARCHAR(20) NOT NULL,
-      country_code VARCHAR(3) NOT NULL DEFAULT 'US',
+      country_code VARCHAR(3) NOT NULL,
       phone VARCHAR(30),
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()

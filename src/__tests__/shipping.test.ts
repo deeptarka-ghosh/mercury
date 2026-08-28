@@ -29,6 +29,7 @@ const minimalShipping = {
   city: 'Seattle',
   state: 'WA',
   postalCode: '98101',
+  countryCode: 'GB',
 };
 
 beforeAll(async () => {
@@ -215,7 +216,7 @@ describe('POST /orders/:orderId/shipping', () => {
     expect(body.city).toBe('Seattle');
     expect(body.state).toBe('WA');
     expect(body.postalCode).toBe('98101');
-    expect(body.countryCode).toBe('US'); // default
+    expect(body.countryCode).toBe('GB'); // explicitly provided
     expect(body.phone).toBeNull();
   });
 
@@ -249,6 +250,7 @@ describe('POST /orders/:orderId/shipping', () => {
     expect(body.error.message).toContain('city is required');
     expect(body.error.message).toContain('state is required');
     expect(body.error.message).toContain('postalCode is required');
+    expect(body.error.message).toContain('countryCode is required');
   });
 });
 
