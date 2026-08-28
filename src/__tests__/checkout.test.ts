@@ -10,6 +10,7 @@ let app: ReturnType<typeof createApp>;
 let pricedProductId: string;
 let unpricedProductId: string;
 let limitedStockProductId: string;
+let noInventoryProductId: string;
 let draftProductId: string;
 let userToken: string;
 let user2Token: string;
@@ -68,13 +69,23 @@ beforeAll(async () => {
   await sql`INSERT INTO prices (product_id, amount) VALUES (${limitedStockProductId}, 9.99)`.execute(db);
   await sql`INSERT INTO inventory (product_id, quantity) VALUES (${limitedStockProductId}, 5)`.execute(db);
 
-  // Draft product
+  // Active product with NO inventory row — should be treated as out of stock
   const r4 = await sql<{ id: string }>`
+    INSERT INTO products (name, slug, description, status, category_id, created_at, updated_at)
+    VALUES ('Widget Delta', 'widget-delta', 'No inventory tracked', 'active', ${categoryId}, now(), now())
+    RETURNING id
+  `.execute(db);
+  noInventoryProductId = r4.rows[0]!.id;
+  await sql`INSERT INTO prices (product_id, amount) VALUES (${noInventoryProductId}, 14.99)`.execute(db);
+  // Deliberately no inventory row
+
+  // Draft product
+  const r5 = await sql<{ id: string }>`
     INSERT INTO products (name, slug, description, status, category_id, created_at, updated_at)
     VALUES ('Draft Widget', 'draft-widget', 'Draft', 'draft', ${categoryId}, now(), now())
     RETURNING id
   `.execute(db);
-  draftProductId = r4.rows[0]!.id;
+  draftProductId = r5.rows[0]!.id;
 
   // Create users
   const pwHash = await hashPassword('test-password-123');
@@ -176,6 +187,71 @@ describe('POST /checkout', () => {
     const body = res.body as { error: { code: string; message: string } };
     expect(body.error.code).toBe('CONFLICT');
     expect(body.error.message).toMatch(/Insufficient stock for "Widget Gamma"/);
+
+    // Clean up
+    const db = (await import('../db/database.js')).getDatabase();
+    await sql`DELETE FROM cart_items`.execute(db);
+  });
+
+  it('rejects a product with no inventory row (treated as out of stock)', async () => {
+    await addToCart(userToken, noInventoryProductId, 1);
+
+    const res = await supertest(app)
+      .post('/checkout')
+      .set('Authorization', `Bearer ${userToken}`)
+      .expect(409);
+
+    const body = res.body as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('CONFLICT');
+    expect(body.error.message).toBe('Product "Widget Delta" is out of stock');
+
+    // Cart and inventory remain unchanged
+    const db = (await import('../db/database.js')).getDatabase();
+    const cartRes = await supertest(app)
+      .get('/cart')
+      .set('Authorization', `Bearer ${userToken}`)
+      .expect(200);
+    expect((cartRes.body as { items: Array<unknown> }).items.length).toBe(1);
+
+    // No inventory row was created as a side effect
+    const invCheck = await sql<{ count: number }>`
+      SELECT COUNT(*)::int AS count FROM inventory WHERE product_id = ${noInventoryProductId}
+    `.execute(db);
+    expect(invCheck.rows[0]!.count).toBe(0);
+
+    await sql`DELETE FROM cart_items`.execute(db);
+  });
+
+  it('rolls back entire transaction if one of multiple cart items has no inventory', async () => {
+    // Add a valid inventoried product AND a no-inventory product
+    await addToCart(userToken, pricedProductId, 1);
+    await addToCart(userToken, noInventoryProductId, 1);
+
+    const preCheckoutStock = await sql<{ quantity: number }>`
+      SELECT quantity FROM inventory WHERE product_id = ${pricedProductId}
+    `.execute(await import('../db/database.js').then((m) => m.getDatabase()));
+    const beforeQty = preCheckoutStock.rows[0]!.quantity;
+
+    const res = await supertest(app)
+      .post('/checkout')
+      .set('Authorization', `Bearer ${userToken}`)
+      .expect(409);
+
+    const body = res.body as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('CONFLICT');
+
+    // Inventory of the valid product must NOT have been decremented (rollback)
+    const postCheckoutStock = await sql<{ quantity: number }>`
+      SELECT quantity FROM inventory WHERE product_id = ${pricedProductId}
+    `.execute(await import('../db/database.js').then((m) => m.getDatabase()));
+    expect(postCheckoutStock.rows[0]!.quantity).toBe(beforeQty);
+
+    // Cart must NOT have been cleared (rollback)
+    const cartRes = await supertest(app)
+      .get('/cart')
+      .set('Authorization', `Bearer ${userToken}`)
+      .expect(200);
+    expect((cartRes.body as { items: Array<unknown> }).items.length).toBe(2);
 
     // Clean up
     const db = (await import('../db/database.js')).getDatabase();

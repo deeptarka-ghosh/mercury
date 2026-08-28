@@ -72,13 +72,14 @@ export async function checkout(userId: string): Promise<CheckoutResponse> {
         );
       }
 
-      if (
-        item.stock_quantity !== null &&
-        item.stock_quantity < item.quantity
-      ) {
-        throw AppError.conflict(
-          `Insufficient stock for "${item.name}". Available: ${item.stock_quantity}, requested: ${item.quantity}`,
-        );
+      // Missing inventory row = quantity 0, consistent with Inventory module
+      const available = item.stock_quantity ?? 0;
+      if (available < item.quantity) {
+        const msg =
+          item.stock_quantity === null
+            ? `Product "${item.name}" is out of stock`
+            : `Insufficient stock for "${item.name}". Available: ${item.stock_quantity}, requested: ${item.quantity}`;
+        throw AppError.conflict(msg);
       }
     }
 
