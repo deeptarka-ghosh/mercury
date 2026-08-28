@@ -41,6 +41,13 @@ router.post('/products/:slug/reviews', authenticate, async (req, res, next) => {
       return;
     }
 
+    if (typeof content === 'string' && content.length > 5000) {
+      res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: 'content must be at most 5000 characters' },
+      });
+      return;
+    }
+
     const reviewContent: string | null =
       content === undefined || content === null ? null : content;
 
@@ -101,6 +108,13 @@ router.patch('/account/reviews/:reviewId', authenticate, async (req, res, next) 
     if (content !== undefined && content !== null && typeof content !== 'string') {
       res.status(400).json({
         error: { code: 'VALIDATION_ERROR', message: 'content must be a string or null' },
+      });
+      return;
+    }
+
+    if (typeof content === 'string' && content.length > 5000) {
+      res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: 'content must be at most 5000 characters' },
       });
       return;
     }

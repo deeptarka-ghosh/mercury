@@ -15,7 +15,9 @@ const router = Router();
 router.get('/orders', authenticate, async (req, res, next) => {
   try {
     const userId = req.user!.id;
-    const orders = await listOrders(userId);
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const offset = parseInt(req.query.offset as string, 10) || 0;
+    const orders = await listOrders(userId, limit, offset);
     res.json(orders);
   } catch (err) {
     next(err);

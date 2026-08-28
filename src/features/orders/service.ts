@@ -31,9 +31,12 @@ export interface OrderSummaryResponse {
 /**
  * List orders belonging to the authenticated user.
  * Sorted by most recent first. Uses stored snapshots only.
+ * Supports optional pagination via limit and offset.
  */
-export async function listOrders(userId: string): Promise<OrderSummaryResponse[]> {
+export async function listOrders(userId: string, limit = 50, offset = 0): Promise<OrderSummaryResponse[]> {
   const db = getDatabase();
+  const safeLimit = Math.min(Math.max(limit, 1), 200);
+  const safeOffset = Math.max(offset, 0);
 
   const rows = await db
     .selectFrom('orders')
@@ -46,6 +49,8 @@ export async function listOrders(userId: string): Promise<OrderSummaryResponse[]
     ])
     .where('orders.user_id', '=', userId)
     .orderBy('orders.created_at', 'desc')
+    .limit(safeLimit)
+    .offset(safeOffset)
     .execute();
 
   return rows.map((row) => ({

@@ -15,7 +15,9 @@ const router = Router();
 router.get('/notifications', authenticate, async (req, res, next) => {
   try {
     const userId = req.user!.id;
-    const notifications = await listNotifications(userId);
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const offset = parseInt(req.query.offset as string, 10) || 0;
+    const notifications = await listNotifications(userId, limit, offset);
     res.json(notifications);
   } catch (err) {
     next(err);

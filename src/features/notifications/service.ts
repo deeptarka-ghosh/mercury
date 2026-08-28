@@ -67,9 +67,12 @@ export async function createNotification(
 
 /**
  * List notifications for the authenticated user, most recent first.
+ * Supports optional pagination via limit and offset.
  */
-export async function listNotifications(userId: string): Promise<NotificationResponse[]> {
+export async function listNotifications(userId: string, limit = 50, offset = 0): Promise<NotificationResponse[]> {
   const db = getDatabase();
+  const safeLimit = Math.min(Math.max(limit, 1), 200);
+  const safeOffset = Math.max(offset, 0);
 
   const rows = await db
     .selectFrom('notifications')
@@ -84,6 +87,8 @@ export async function listNotifications(userId: string): Promise<NotificationRes
     ])
     .where('notifications.user_id', '=', userId)
     .orderBy('notifications.created_at', 'desc')
+    .limit(safeLimit)
+    .offset(safeOffset)
     .execute();
 
   return rows.map(mapNotification);

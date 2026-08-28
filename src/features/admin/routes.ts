@@ -48,6 +48,14 @@ router.post('/admin/categories', async (req, res, next) => {
       res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'slug is required' } });
       return;
     }
+    if (body.name.length > 100) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'name must be at most 100 characters' } });
+      return;
+    }
+    if (body.slug.length > 120) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'slug must be at most 120 characters' } });
+      return;
+    }
 
     const result = await createCategory({
       name: body.name,
@@ -136,6 +144,14 @@ router.post('/admin/products', async (req, res, next) => {
     }
     if (!body.slug || typeof body.slug !== 'string') {
       res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'slug is required' } });
+      return;
+    }
+    if (body.name.length > 255) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'name must be at most 255 characters' } });
+      return;
+    }
+    if (body.slug.length > 280) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'slug must be at most 280 characters' } });
       return;
     }
 
