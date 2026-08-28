@@ -87,6 +87,18 @@ export interface OrdersTable {
   updated_at?: Generated<string>;
 }
 
+export interface PaymentsTable {
+  id: Generated<string>;
+  order_id: string;
+  amount: string;
+  currency: string;
+  status: string;
+  provider: string | null;
+  provider_ref: string | null;
+  created_at: string;
+  updated_at?: Generated<string>;
+}
+
 export interface OrderItemsTable {
   id: Generated<string>;
   order_id: string;
@@ -108,5 +120,6 @@ export interface DB {
   prices: PricesTable;
   cart_items: CartItemsTable;
   orders: OrdersTable;
+  payments: PaymentsTable;
   order_items: OrderItemsTable;
 }

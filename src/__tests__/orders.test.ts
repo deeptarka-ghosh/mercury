@@ -18,6 +18,7 @@ beforeAll(async () => {
 
   // Clean slate
   await sql`DELETE FROM order_items`.execute(db);
+  await sql`DELETE FROM payments`.execute(db);
   await sql`DELETE FROM orders`.execute(db);
   await sql`DELETE FROM cart_items`.execute(db);
   await sql`DELETE FROM prices`.execute(db);
@@ -135,6 +136,7 @@ beforeAll(async () => {
 afterAll(async () => {
   const db = (await import('../db/database.js')).getDatabase();
   await sql`DELETE FROM order_items`.execute(db);
+  await sql`DELETE FROM payments`.execute(db);
   await sql`DELETE FROM orders`.execute(db);
   await sql`DELETE FROM cart_items`.execute(db);
   await sql`DELETE FROM prices`.execute(db);
