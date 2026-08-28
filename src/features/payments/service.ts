@@ -1,6 +1,7 @@
 import { getDatabase } from '../../db/database.js';
 import { AppError } from '../../errors/AppError.js';
 import { sql } from 'kysely';
+import { createNotification } from '../notifications/service.js';
 
 export interface PaymentResponse {
   id: string;
@@ -242,6 +243,25 @@ export async function updatePaymentStatus(
       WHERE id = ${payment.id}
       RETURNING *
     `.execute(trx);
+
+    // Create notification for payment status change
+    if (status === 'completed') {
+      await createNotification(
+        trx,
+        userId,
+        'payment_completed',
+        'Payment Completed',
+        `Your payment of $${updated.rows[0]!.amount} has been completed.`,
+      );
+    } else if (status === 'failed') {
+      await createNotification(
+        trx,
+        userId,
+        'payment_failed',
+        'Payment Failed',
+        `Your payment of $${updated.rows[0]!.amount} has failed.`,
+      );
+    }
 
     return mapPayment(updated.rows[0]!);
   });

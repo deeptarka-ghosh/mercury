@@ -1,6 +1,7 @@
 import { getDatabase } from '../../db/database.js';
 import { AppError } from '../../errors/AppError.js';
 import { sql } from 'kysely';
+import { createNotification } from '../notifications/service.js';
 
 export interface CheckoutResponse {
   orderId: string;
@@ -150,6 +151,13 @@ export async function checkout(userId: string): Promise<CheckoutResponse> {
       ])
       .where('orders.id', '=', orderId)
       .executeTakeFirstOrThrow();
+
+    // Create notification
+    const totalStr = order.total ?? undefined;
+    const msg = totalStr
+      ? `Your order #${orderId.slice(0, 8)} has been placed for ${totalStr}.`
+      : `Your order #${orderId.slice(0, 8)} has been placed.`;
+    await createNotification(trx, userId, 'order_created', 'Order Created', msg);
 
     return {
       orderId: order.id,

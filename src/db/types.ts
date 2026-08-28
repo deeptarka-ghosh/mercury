@@ -115,6 +115,17 @@ export interface OrderShippingTable {
   updated_at?: Generated<string>;
 }
 
+export interface NotificationsTable {
+  id: Generated<string>;
+  user_id: string;
+  type: string;
+  title: string;
+  message: string;
+  is_read: boolean;
+  read_at: string | null;
+  created_at: string;
+}
+
 export interface OrderItemsTable {
   id: Generated<string>;
   order_id: string;
@@ -138,5 +149,6 @@ export interface DB {
   orders: OrdersTable;
   payments: PaymentsTable;
   order_shipping: OrderShippingTable;
+  notifications: NotificationsTable;
   order_items: OrderItemsTable;
 }

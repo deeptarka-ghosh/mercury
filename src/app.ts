@@ -12,6 +12,7 @@ import checkoutRouter from './features/checkout/routes.js';
 import ordersRouter from './features/orders/routes.js';
 import paymentsRouter from './features/payments/routes.js';
 import shippingRouter from './features/shipping/routes.js';
+import notificationsRouter from './features/notifications/routes.js';
 
 export function createApp(): express.Application {
   const app = express();
@@ -29,6 +30,7 @@ export function createApp(): express.Application {
   app.use(ordersRouter);
   app.use(paymentsRouter);
   app.use(shippingRouter);
+  app.use(notificationsRouter);
 
   app.use((_req, res) => {
     res.status(404).json({
