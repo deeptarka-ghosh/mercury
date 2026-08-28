@@ -59,12 +59,8 @@ beforeAll(async () => {
   const pwHash = await hashPassword('test-password-123');
   await sql`INSERT INTO users (email, password_hash, created_at, updated_at)
     VALUES ('orders-user@example.com', ${pwHash}, now(), now())`.execute(db);
-  const user2Result = await sql<{ id: string }>`
-    INSERT INTO users (email, password_hash, created_at, updated_at)
-    VALUES ('orders-user2@example.com', ${pwHash}, now(), now())
-    RETURNING id
-  `.execute(db);
-  user2Id = user2Result.rows[0]!.id;
+  await sql`INSERT INTO users (email, password_hash, created_at, updated_at)
+    VALUES ('orders-user2@example.com', ${pwHash}, now(), now())`.execute(db);
 
   app = createApp();
 
@@ -180,22 +176,29 @@ describe('GET /orders', () => {
   });
 
   it('does not include another users orders', async () => {
-    const res = await supertest(app)
+    const user1Res = await supertest(app)
       .get('/orders')
       .set('Authorization', `Bearer ${userToken}`)
       .expect(200);
 
-    const body = res.body as Array<{ id: string }>;
-    const booked = body.map((o) => o.id);
-
-    // Fetch user2's orders to verify they differ
     const user2Res = await supertest(app)
       .get('/orders')
       .set('Authorization', `Bearer ${user2Token}`)
       .expect(200);
 
-    const user2Body = res.body as Array<{ id: string }>;
-    // Actually use user2Body from user2's response
+    const user1Orders = user1Res.body as Array<{ id: string }>;
+    const user2Orders = user2Res.body as Array<{ id: string }>;
+
+    // Each user has their own orders
+    expect(user1Orders.length).toBe(2);
+    expect(user2Orders.length).toBe(1);
+
+    // No overlap
+    const user1Ids = new Set(user1Orders.map((o) => o.id));
+    const user2Ids = new Set(user2Orders.map((o) => o.id));
+    for (const id of user1Ids) {
+      expect(user2Ids.has(id)).toBe(false);
+    }
   });
 
   it('returns empty list for a user with no orders', async () => {
