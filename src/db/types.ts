@@ -147,6 +147,13 @@ export interface ReviewsTable {
   updated_at?: Generated<string>;
 }
 
+export interface WishlistItemsTable {
+  id: Generated<string>;
+  user_id: string;
+  product_id: string;
+  created_at: string;
+}
+
 export interface DB {
   users: UsersTable;
   refresh_tokens: RefreshTokensTable;
@@ -162,4 +169,5 @@ export interface DB {
   notifications: NotificationsTable;
   order_items: OrderItemsTable;
   reviews: ReviewsTable;
+  wishlist_items: WishlistItemsTable;
 }
