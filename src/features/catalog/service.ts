@@ -1,5 +1,6 @@
 import { getDatabase } from '../../db/database.js';
 import { AppError } from '../../errors/AppError.js';
+import { sql } from 'kysely';
 
 export interface CategoryResponse {
   id: string;
@@ -19,6 +20,7 @@ export interface ProductResponse {
   status: string;
   categoryId: string | null;
   category: string | null;
+  price: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -51,6 +53,7 @@ function mapProduct(row: {
   status: string;
   category_id: string | null;
   category_name: string | null;
+  price: string | null;
   created_at: string;
   updated_at: string | undefined;
 }): ProductResponse {
@@ -62,6 +65,7 @@ function mapProduct(row: {
     status: row.status,
     categoryId: row.category_id,
     category: row.category_name,
+    price: row.price,
     createdAt: row.created_at,
     updatedAt: row.updated_at ?? row.created_at,
   };
@@ -111,6 +115,7 @@ export async function getCategoryBySlug(slug: string): Promise<{ category: Categ
   const products = await db
     .selectFrom('products')
     .leftJoin('categories', 'categories.id', 'products.category_id')
+    .leftJoin('prices', 'prices.product_id', 'products.id')
     .select([
       'products.id',
       'products.name',
@@ -119,6 +124,7 @@ export async function getCategoryBySlug(slug: string): Promise<{ category: Categ
       'products.status',
       'products.category_id',
       'categories.name as category_name',
+      sql<string>`CAST(prices.amount AS TEXT)`.as('price'),
       'products.created_at',
       'products.updated_at',
     ])
@@ -139,6 +145,7 @@ export async function listProducts(categorySlug?: string): Promise<ProductRespon
   let query = db
     .selectFrom('products')
     .leftJoin('categories', 'categories.id', 'products.category_id')
+    .leftJoin('prices', 'prices.product_id', 'products.id')
     .select([
       'products.id',
       'products.name',
@@ -147,6 +154,7 @@ export async function listProducts(categorySlug?: string): Promise<ProductRespon
       'products.status',
       'products.category_id',
       'categories.name as category_name',
+      sql<string>`CAST(prices.amount AS TEXT)`.as('price'),
       'products.created_at',
       'products.updated_at',
     ])
@@ -168,6 +176,7 @@ export async function getProductBySlug(slug: string): Promise<ProductResponse> {
   const row = await db
     .selectFrom('products')
     .leftJoin('categories', 'categories.id', 'products.category_id')
+    .leftJoin('prices', 'prices.product_id', 'products.id')
     .select([
       'products.id',
       'products.name',
@@ -176,6 +185,7 @@ export async function getProductBySlug(slug: string): Promise<ProductResponse> {
       'products.status',
       'products.category_id',
       'categories.name as category_name',
+      sql<string>`CAST(prices.amount AS TEXT)`.as('price'),
       'products.created_at',
       'products.updated_at',
     ])

@@ -15,6 +15,7 @@ beforeAll(async () => {
   const db = (await import('../db/database.js')).getDatabase();
 
   // Clean slate
+  await sql`DELETE FROM prices`.execute(db);
   await sql`DELETE FROM products`.execute(db);
   await sql`DELETE FROM categories`.execute(db);
 
@@ -32,10 +33,13 @@ beforeAll(async () => {
   `.execute(db);
 
   // Seed products
-  await sql`
+  // Capture a product id to set a price on it
+  const prodResult = await sql<{ id: string }>`
     INSERT INTO products (name, slug, description, status, category_id, created_at, updated_at)
     VALUES ('Smartphone', 'smartphone', 'A mobile phone', 'active', ${categoryId}, now(), now())
+    RETURNING id
   `.execute(db);
+  const smartphoneId = prodResult.rows[0]!.id;
 
   await sql`
     INSERT INTO products (name, slug, description, status, category_id, created_at, updated_at)
@@ -57,11 +61,18 @@ beforeAll(async () => {
     VALUES ('Old Product', 'old-product', 'Archived', 'archived', NULL, now(), now())
   `.execute(db);
 
+  // Set a price on the smartphone to verify catalog integration
+  await sql`
+    INSERT INTO prices (product_id, amount, created_at, updated_at)
+    VALUES (${smartphoneId}, 29.99, now(), now())
+  `.execute(db);
+
   app = createApp();
 });
 
 afterAll(async () => {
   const db = (await import('../db/database.js')).getDatabase();
+  await sql`DELETE FROM prices`.execute(db);
   await sql`DELETE FROM products`.execute(db);
   await sql`DELETE FROM categories`.execute(db);
   await destroyDatabase();
@@ -89,13 +100,15 @@ describe('GET /categories/:slug', () => {
 
     const body = res.body as {
       category: { name: string; slug: string };
-      products: Array<{ name: string; slug: string }>;
+      products: Array<{ name: string; slug: string; price: string | null }>;
     };
 
     expect(body.category.name).toBe('Electronics');
     expect(body.products.length).toBe(2);
     expect(body.products[0]!.slug).toBe('laptop');
     expect(body.products[1]!.slug).toBe('smartphone');
+    expect(body.products[0]!.price).toBeNull();
+    expect(body.products[1]!.price).toBe('29.99');
   });
 
   it('returns 404 for unknown category', async () => {
@@ -126,11 +139,13 @@ describe('GET /products', () => {
       .get('/products')
       .expect(200);
 
-    const body = res.body as Array<{ slug: string; category: string | null }>;
+    const body = res.body as Array<{ slug: string; category: string | null; price: string | null }>;
     const smartphone = body.find((p) => p.slug === 'smartphone');
     const novel = body.find((p) => p.slug === 'novel');
     expect(smartphone!.category).toBe('Electronics');
     expect(novel!.category).toBeNull();
+    expect(smartphone!.price).toBe('29.99');
+    expect(novel!.price).toBeNull();
   });
 
   it('filters by category slug', async () => {
@@ -168,6 +183,7 @@ describe('GET /products/:slug', () => {
       status: string;
       categoryId: string;
       category: string;
+      price: string | null;
     };
 
     expect(body.name).toBe('Smartphone');
@@ -175,6 +191,7 @@ describe('GET /products/:slug', () => {
     expect(body.status).toBe('active');
     expect(body.category).toBe('Electronics');
     expect(body.categoryId).toBe(categoryId);
+    expect(body.price).toBe('29.99');
   });
 
   it('returns 404 for draft product', async () => {

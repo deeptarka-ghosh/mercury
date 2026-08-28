@@ -8,7 +8,6 @@ import { hashPassword } from '../auth/password.js';
 
 let app: ReturnType<typeof createApp>;
 let productId: string;
-let productSlug: string;
 let accessToken: string;
 
 beforeAll(async () => {
@@ -18,6 +17,7 @@ beforeAll(async () => {
   const db = (await import('../db/database.js')).getDatabase();
 
   // Clean slate
+  await sql`DELETE FROM prices`.execute(db);
   await sql`DELETE FROM inventory`.execute(db);
   await sql`DELETE FROM products`.execute(db);
   await sql`DELETE FROM categories`.execute(db);
@@ -39,7 +39,6 @@ beforeAll(async () => {
     RETURNING id
   `.execute(db);
   productId = prodResult.rows[0]!.id;
-  productSlug = 'test-widget';
 
   // Seed a draft product
   await sql`
@@ -67,6 +66,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const db = (await import('../db/database.js')).getDatabase();
+  await sql`DELETE FROM prices`.execute(db);
   await sql`DELETE FROM inventory`.execute(db);
   await sql`DELETE FROM products`.execute(db);
   await sql`DELETE FROM categories`.execute(db);
@@ -165,7 +165,7 @@ describe('PUT /products/:slug/inventory', () => {
       .send({ quantity: 0 })
       .expect(200);
 
-    expect(res.body.quantity).toBe(0);
+    expect((res.body as { quantity: number }).quantity).toBe(0);
 
     // Verify stock is reflected on public endpoint
     const getRes = await supertest(app)

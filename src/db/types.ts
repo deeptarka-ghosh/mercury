@@ -62,6 +62,13 @@ export interface InventoryTable {
   updated_at?: Generated<string>;
 }
 
+export interface PricesTable {
+  product_id: string;
+  amount: string;
+  created_at: string;
+  updated_at?: Generated<string>;
+}
+
 export interface DB {
   users: UsersTable;
   refresh_tokens: RefreshTokensTable;
@@ -69,4 +76,5 @@ export interface DB {
   categories: CategoriesTable;
   products: ProductsTable;
   inventory: InventoryTable;
+  prices: PricesTable;
 }
