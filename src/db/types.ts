@@ -99,6 +99,22 @@ export interface PaymentsTable {
   updated_at?: Generated<string>;
 }
 
+export interface OrderShippingTable {
+  id: Generated<string>;
+  order_id: string;
+  status: string;
+  recipient_name: string;
+  address_line1: string;
+  address_line2: string | null;
+  city: string;
+  state: string;
+  postal_code: string;
+  country_code: string;
+  phone: string | null;
+  created_at: string;
+  updated_at?: Generated<string>;
+}
+
 export interface OrderItemsTable {
   id: Generated<string>;
   order_id: string;
@@ -121,5 +137,6 @@ export interface DB {
   cart_items: CartItemsTable;
   orders: OrdersTable;
   payments: PaymentsTable;
+  order_shipping: OrderShippingTable;
   order_items: OrderItemsTable;
 }
