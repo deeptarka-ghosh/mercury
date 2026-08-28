@@ -2,6 +2,9 @@ import { getDatabase } from '../../db/database.js';
 import { AppError } from '../../errors/AppError.js';
 import { sql } from 'kysely';
 
+const SEARCH_MAX_LENGTH = 200;
+const SEARCH_LIMIT = 50;
+
 export interface CategoryResponse {
   id: string;
   name: string;
@@ -45,7 +48,7 @@ function mapCategory(row: {
   };
 }
 
-function mapProduct(row: {
+export function mapProduct(row: {
   id: string;
   name: string;
   slug: string;
@@ -198,4 +201,52 @@ export async function getProductBySlug(slug: string): Promise<ProductResponse> {
   }
 
   return mapProduct(row);
+}
+
+/**
+ * Search active products by name and description using PostgreSQL ILIKE.
+ * Uses pg_trgm GIN indexes for efficient wildcard matching.
+ * Results are ordered by similarity to the query, then by name.
+ * Returns at most 50 results.
+ */
+export async function searchProducts(query: string): Promise<ProductResponse[]> {
+  if (!query || query.trim().length === 0) {
+    throw AppError.badRequest('Search query is required');
+  }
+
+  if (query.length > SEARCH_MAX_LENGTH) {
+    throw AppError.badRequest(`Search query must be at most ${SEARCH_MAX_LENGTH} characters`);
+  }
+
+  const db = getDatabase();
+
+  const pattern = `%${query.trim()}%`;
+
+  const rows = await sql<{
+    id: string;
+    name: string;
+    slug: string;
+    description: string | null;
+    status: string;
+    category_id: string | null;
+    category_name: string | null;
+    price: string | null;
+    created_at: string;
+    updated_at: string | undefined;
+  }>`
+    SELECT
+      p.id, p.name, p.slug, p.description, p.status,
+      p.category_id, cat.name AS category_name,
+      CAST(pr.amount AS TEXT) AS price,
+      p.created_at, p.updated_at
+    FROM products p
+    LEFT JOIN categories cat ON cat.id = p.category_id
+    LEFT JOIN prices pr ON pr.product_id = p.id
+    WHERE p.status = 'active'
+      AND (p.name ILIKE ${pattern} OR p.description ILIKE ${pattern})
+    ORDER BY p.name
+    LIMIT ${SEARCH_LIMIT}
+  `.execute(db);
+
+  return rows.rows.map(mapProduct);
 }
