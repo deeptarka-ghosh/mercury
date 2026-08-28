@@ -7,6 +7,7 @@ import usersRouter from './features/users/routes.js';
 import catalogRouter from './features/catalog/routes.js';
 import inventoryRouter from './features/inventory/routes.js';
 import pricingRouter from './features/pricing/routes.js';
+import cartRouter from './features/cart/routes.js';
 
 export function createApp(): express.Application {
   const app = express();
@@ -19,6 +20,7 @@ export function createApp(): express.Application {
   app.use(catalogRouter);
   app.use(inventoryRouter);
   app.use(pricingRouter);
+  app.use(cartRouter);
 
   app.use((_req, res) => {
     res.status(404).json({

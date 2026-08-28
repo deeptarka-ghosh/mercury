@@ -69,6 +69,15 @@ export interface PricesTable {
   updated_at?: Generated<string>;
 }
 
+export interface CartItemsTable {
+  id: Generated<string>;
+  user_id: string;
+  product_id: string;
+  quantity: number;
+  created_at: string;
+  updated_at?: Generated<string>;
+}
+
 export interface DB {
   users: UsersTable;
   refresh_tokens: RefreshTokensTable;
@@ -77,4 +86,5 @@ export interface DB {
   products: ProductsTable;
   inventory: InventoryTable;
   prices: PricesTable;
+  cart_items: CartItemsTable;
 }
