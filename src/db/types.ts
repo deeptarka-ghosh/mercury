@@ -78,6 +78,26 @@ export interface CartItemsTable {
   updated_at?: Generated<string>;
 }
 
+export interface OrdersTable {
+  id: Generated<string>;
+  user_id: string;
+  status: string;
+  total: string | null;
+  created_at: string;
+  updated_at?: Generated<string>;
+}
+
+export interface OrderItemsTable {
+  id: Generated<string>;
+  order_id: string;
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  unit_price: string | null;
+  line_total: string | null;
+  created_at: string;
+}
+
 export interface DB {
   users: UsersTable;
   refresh_tokens: RefreshTokensTable;
@@ -87,4 +107,6 @@ export interface DB {
   inventory: InventoryTable;
   prices: PricesTable;
   cart_items: CartItemsTable;
+  orders: OrdersTable;
+  order_items: OrderItemsTable;
 }
