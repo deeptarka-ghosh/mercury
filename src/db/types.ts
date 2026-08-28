@@ -137,6 +137,16 @@ export interface OrderItemsTable {
   created_at: string;
 }
 
+export interface ReviewsTable {
+  id: Generated<string>;
+  user_id: string;
+  product_id: string;
+  rating: number;
+  content: string | null;
+  created_at: string;
+  updated_at?: Generated<string>;
+}
+
 export interface DB {
   users: UsersTable;
   refresh_tokens: RefreshTokensTable;
@@ -151,4 +161,5 @@ export interface DB {
   order_shipping: OrderShippingTable;
   notifications: NotificationsTable;
   order_items: OrderItemsTable;
+  reviews: ReviewsTable;
 }
