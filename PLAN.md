@@ -1,5 +1,7 @@
 # Mercury Ecommerce Engine — Project Skeleton Implementation Plan
 
+> **⚠️ Historical document.** This is the original skeleton implementation plan from the first development task. Many details are outdated (Express 4 → Express 5, pnpm → npm, directory structure has evolved). The authoritative documentation is in `docs/`. This file is preserved for historical context only.
+
 **Author:** Scout (PM)  
 **Context:** Parent agent requested a detailed plan for `mercury/` skeleton build.  
 **Protocol:** bot-to-bot — no code, just the plan.
@@ -8,8 +10,8 @@
 
 ## 1. Technology Choices and Rationale
 
-| Concern | Choice | Why |
-|---|---|---|
+|| Concern | Choice | Why |
+|---|---|---|---|
 | **Runtime** | Node.js 24.19.0 (LTS) | Already available; v24 supports latest JS/TS syntax (isolated declarations, decorators, etc.) |
 | **Language** | TypeScript 5.x | Strict mode per PROJECT.md; provides type safety at compile time |
 | **Package manager** | pnpm 11.24.0 | Fast, disk-efficient, strict dependency isolation — already available |
