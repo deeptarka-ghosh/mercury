@@ -9,6 +9,7 @@ import inventoryRouter from './features/inventory/routes.js';
 import pricingRouter from './features/pricing/routes.js';
 import cartRouter from './features/cart/routes.js';
 import checkoutRouter from './features/checkout/routes.js';
+import ordersRouter from './features/orders/routes.js';
 
 export function createApp(): express.Application {
   const app = express();
@@ -23,6 +24,7 @@ export function createApp(): express.Application {
   app.use(pricingRouter);
   app.use(cartRouter);
   app.use(checkoutRouter);
+  app.use(ordersRouter);
 
   app.use((_req, res) => {
     res.status(404).json({
