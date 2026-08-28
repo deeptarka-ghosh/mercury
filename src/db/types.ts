@@ -1,4 +1,4 @@
-import type { Generated } from 'kysely';
+import type { Generated, JSONColumnType } from 'kysely';
 
 export interface UsersTable {
   id: Generated<string>;
@@ -155,6 +155,16 @@ export interface WishlistItemsTable {
   created_at: string;
 }
 
+export interface AuditLogTable {
+  id: Generated<string>;
+  actor_id: string | null;
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+  metadata: JSONColumnType<Record<string, unknown> | null>;
+  created_at: string;
+}
+
 export interface DB {
   users: UsersTable;
   refresh_tokens: RefreshTokensTable;
@@ -171,4 +181,5 @@ export interface DB {
   order_items: OrderItemsTable;
   reviews: ReviewsTable;
   wishlist_items: WishlistItemsTable;
+  audit_log: AuditLogTable;
 }

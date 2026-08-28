@@ -3,6 +3,29 @@ import { AppError } from '../../errors/AppError.js';
 import { sql } from 'kysely';
 import { mapProduct, mapCategory } from '../catalog/service.js';
 
+// --- Audit ---
+
+/**
+ * Record an audit log entry.
+ * Called after a successful mutation to record the action.
+ * Uses a separate insert (not in the mutation's transaction) by design,
+ * since existing admin operations do not use transactions.
+ * Returns the inserted row id.
+ */
+export async function recordAudit(
+  actorId: string | null,
+  action: string,
+  resourceType: string,
+  resourceId: string | null,
+  metadata: Record<string, unknown> | null,
+): Promise<void> {
+  const db = getDatabase();
+  await sql`
+    INSERT INTO audit_log (actor_id, action, resource_type, resource_id, metadata, created_at)
+    VALUES (${actorId}, ${action}, ${resourceType}, ${resourceId}, ${metadata ? JSON.stringify(metadata) : null}, now())
+  `.execute(db);
+}
+
 // --- Category Management ---
 
 export async function listAllCategories() {
