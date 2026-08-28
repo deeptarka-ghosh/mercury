@@ -24,3 +24,29 @@ export const env = Object.freeze({
   ADMIN_BOOTSTRAP_EMAIL: envVar.get('ADMIN_BOOTSTRAP_EMAIL').default('').asString(),
   ADMIN_BOOTSTRAP_PASSWORD: envVar.get('ADMIN_BOOTSTRAP_PASSWORD').default('').asString(),
 });
+
+/**
+ * Validate production configuration.
+ * Fails fast with a clear message so unsafe defaults are not used in production.
+ * Must be called explicitly at startup — not at import time, so tests
+ * can import env without triggering these checks.
+ */
+export function validateProductionConfig(): void {
+  if (env.NODE_ENV !== 'production') {
+    return;
+  }
+
+  if (env.JWT_SECRET === 'dev-secret-do-not-use-in-production') {
+    throw new Error(
+      'JWT_SECRET must be set to a unique, secure value in production. ' +
+      'The default development secret is not safe for production use.',
+    );
+  }
+
+  if (env.DATABASE_URL === 'postgresql://localhost:5432/mercury_dev') {
+    throw new Error(
+      'DATABASE_URL must be configured for production. ' +
+      'The default development URL is not suitable for production.',
+    );
+  }
+}

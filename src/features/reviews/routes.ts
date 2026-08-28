@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../../auth/middleware.js';
+import { rateLimit, userKey } from '../../middleware/rateLimiter.js';
 import {
   createReview,
   getProductReviews,
@@ -10,11 +11,14 @@ import {
 
 const router = Router();
 
+// Review creation is a write operation — limit to 20 per minute per user
+const reviewLimiter = rateLimit({ windowMs: 60_000, maxRequests: 20, keyFn: userKey });
+
 /**
  * POST /products/:slug/reviews
  * Authenticated: create a review for an active product.
  */
-router.post('/products/:slug/reviews', authenticate, async (req, res, next) => {
+router.post('/products/:slug/reviews', authenticate, reviewLimiter, async (req, res, next) => {
   try {
     const userId = req.user!.id;
     const slug = req.params.slug as string;

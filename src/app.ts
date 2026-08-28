@@ -1,4 +1,5 @@
 import express from 'express';
+import helmet from 'helmet';
 import { requestLogger } from './middleware/requestLogger.js';
 import { errorHandler } from './errors/errorHandler.js';
 import healthRouter from './routes/health.js';
@@ -20,8 +21,11 @@ import adminRouter from './features/admin/routes.js';
 export function createApp(): express.Application {
   const app = express();
 
+  // Security headers
+  app.use(helmet());
+
   app.use(requestLogger);
-  app.use(express.json());
+  app.use(express.json({ limit: '100kb' }));
   app.use(healthRouter);
   app.use(authRouter);
   app.use(usersRouter);

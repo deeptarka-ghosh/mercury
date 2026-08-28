@@ -1,4 +1,4 @@
-import { env } from './config/env.js';
+import { env, validateProductionConfig } from './config/env.js';
 import { logger } from './config/logger.js';
 import { createApp } from './app.js';
 import { createPool, destroyPool } from './db/pool.js';
@@ -65,6 +65,9 @@ async function bootstrapAdmin(): Promise<void> {
 }
 
 function main(): void {
+  // Fail fast in production if unsafe default config would be used
+  validateProductionConfig();
+
   const pool = createPool();
   createDatabase(pool);
 

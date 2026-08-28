@@ -36,6 +36,10 @@ export class AppError extends Error {
     return new AppError(409, 'CONFLICT', message);
   }
 
+  static tooManyRequests(message = 'Too many requests'): AppError {
+    return new AppError(429, 'TOO_MANY_REQUESTS', message);
+  }
+
   toJSON(): { error: { code: string; message: string } } {
     return {
       error: {

@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import { login, register, refresh, logout } from './service.js';
+import { rateLimit } from '../../middleware/rateLimiter.js';
 
 const router = Router();
+
+// Auth endpoints are protected from brute-force with conservative rate limits
+const authLimiter = rateLimit({ windowMs: 60_000, maxRequests: 10 });
+const refreshLimiter = rateLimit({ windowMs: 60_000, maxRequests: 20 });
 
 interface LoginBody {
   email?: string;
@@ -21,7 +26,7 @@ interface LogoutBody {
   refreshToken?: string;
 }
 
-router.post('/auth/register', async (req, res, next) => {
+router.post('/auth/register', authLimiter, async (req, res, next) => {
   try {
     const { email, password } = req.body as RegisterBody;
 
@@ -57,7 +62,7 @@ router.post('/auth/register', async (req, res, next) => {
   }
 });
 
-router.post('/auth/login', async (req, res, next) => {
+router.post('/auth/login', authLimiter, async (req, res, next) => {
   try {
     const { email, password } = req.body as LoginBody;
 
@@ -93,7 +98,7 @@ router.post('/auth/login', async (req, res, next) => {
   }
 });
 
-router.post('/auth/refresh', async (req, res, next) => {
+router.post('/auth/refresh', refreshLimiter, async (req, res, next) => {
   try {
     const { refreshToken } = req.body as RefreshBody;
 

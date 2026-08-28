@@ -1,8 +1,12 @@
 import { Router } from 'express';
 import { authenticate } from '../../auth/middleware.js';
+import { rateLimit, userKey } from '../../middleware/rateLimiter.js';
 import { getWishlist, addToWishlist, removeFromWishlist } from './service.js';
 
 const router = Router();
+
+// Wishlist add is a write operation — limit to 30 per minute per user
+const wishlistLimiter = rateLimit({ windowMs: 60_000, maxRequests: 30, keyFn: userKey });
 
 /**
  * GET /wishlist
@@ -22,7 +26,7 @@ router.get('/wishlist', authenticate, async (req, res, next) => {
  * POST /wishlist
  * Authenticated: add a product to the wishlist.
  */
-router.post('/wishlist', authenticate, async (req, res, next) => {
+router.post('/wishlist', authenticate, wishlistLimiter, async (req, res, next) => {
   try {
     const userId = req.user!.id;
     const { productId } = req.body as { productId?: unknown };
