@@ -15,6 +15,7 @@ import shippingRouter from './features/shipping/routes.js';
 import notificationsRouter from './features/notifications/routes.js';
 import reviewsRouter from './features/reviews/routes.js';
 import wishlistRouter from './features/wishlist/routes.js';
+import adminRouter from './features/admin/routes.js';
 
 export function createApp(): express.Application {
   const app = express();
@@ -35,6 +36,7 @@ export function createApp(): express.Application {
   app.use(notificationsRouter);
   app.use(reviewsRouter);
   app.use(wishlistRouter);
+  app.use(adminRouter);
 
   app.use((_req, res) => {
     res.status(404).json({

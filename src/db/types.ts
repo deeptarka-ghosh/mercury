@@ -4,6 +4,7 @@ export interface UsersTable {
   id: Generated<string>;
   email: string;
   password_hash: string;
+  role: string;
   email_verified_at: string | null;
   created_at: string;
   updated_at: string;

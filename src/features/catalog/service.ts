@@ -28,7 +28,7 @@ export interface ProductResponse {
   updatedAt: string;
 }
 
-function mapCategory(row: {
+export function mapCategory(row: {
   id: string;
   name: string;
   slug: string;

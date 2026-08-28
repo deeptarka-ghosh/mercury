@@ -21,4 +21,6 @@ export const env = Object.freeze({
   JWT_ISSUER: envVar.get('JWT_ISSUER').default('mercury').asString(),
   JWT_ACCESS_EXPIRY: envVar.get('JWT_ACCESS_EXPIRY').default('15m').asString(),
   JWT_REFRESH_EXPIRY: envVar.get('JWT_REFRESH_EXPIRY').default('7d').asString(),
+  ADMIN_BOOTSTRAP_EMAIL: envVar.get('ADMIN_BOOTSTRAP_EMAIL').default('').asString(),
+  ADMIN_BOOTSTRAP_PASSWORD: envVar.get('ADMIN_BOOTSTRAP_PASSWORD').default('').asString(),
 });

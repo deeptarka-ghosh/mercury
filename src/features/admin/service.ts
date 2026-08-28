@@ -1,0 +1,303 @@
+import { getDatabase } from '../../db/database.js';
+import { AppError } from '../../errors/AppError.js';
+import { sql } from 'kysely';
+import { mapProduct, mapCategory } from '../catalog/service.js';
+
+// --- Category Management ---
+
+export async function listAllCategories() {
+  const db = getDatabase();
+  const rows = await db
+    .selectFrom('categories')
+    .select([
+      'categories.id',
+      'categories.name',
+      'categories.slug',
+      'categories.description',
+      'categories.parent_id',
+      'categories.created_at',
+      'categories.updated_at',
+    ])
+    .orderBy('name')
+    .execute();
+  return rows.map(mapCategory);
+}
+
+export async function getCategoryById(id: string) {
+  const db = getDatabase();
+  const row = await db
+    .selectFrom('categories')
+    .select([
+      'categories.id',
+      'categories.name',
+      'categories.slug',
+      'categories.description',
+      'categories.parent_id',
+      'categories.created_at',
+      'categories.updated_at',
+    ])
+    .where('id', '=', id)
+    .executeTakeFirst();
+
+  if (!row) throw AppError.notFound('Category not found');
+  return mapCategory(row);
+}
+
+export async function createCategory(data: {
+  name: string;
+  slug: string;
+  description?: string | null;
+  parentId?: string | null;
+}) {
+  const db = getDatabase();
+  try {
+    const result = await sql<{
+      id: string;
+      name: string;
+      slug: string;
+      description: string | null;
+      parent_id: string | null;
+      created_at: string;
+      updated_at: string;
+    }>`
+      INSERT INTO categories (name, slug, description, parent_id, created_at, updated_at)
+      VALUES (${data.name}, ${data.slug}, ${data.description ?? null}, ${data.parentId ?? null}, now(), now())
+      RETURNING id, name, slug, description, parent_id, created_at, updated_at
+    `.execute(db);
+    return mapCategory(result.rows[0]!);
+  } catch (err: unknown) {
+    if (err instanceof Error && 'code' in err && (err as { code: string }).code === '23505') {
+      throw AppError.conflict('A category with this slug already exists');
+    }
+    if (err instanceof Error && 'code' in err && (err as { code: string }).code === '23503') {
+      throw AppError.badRequest('Parent category not found');
+    }
+    throw err;
+  }
+}
+
+export async function updateCategory(
+  id: string,
+  data: { name?: string; slug?: string; description?: string | null; parentId?: string | null },
+) {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+
+  const updateFields: Record<string, string | null> = { updated_at: now };
+
+  if (data.name !== undefined) updateFields.name = data.name;
+  if (data.slug !== undefined) updateFields.slug = data.slug;
+  if (data.description !== undefined) updateFields.description = data.description;
+  if (data.parentId !== undefined) updateFields.parent_id = data.parentId;
+
+  // Check at least one custom field was provided (updated_at is always set)
+  const customKeys = Object.keys(updateFields).filter((k) => k !== 'updated_at');
+  if (customKeys.length === 0) throw AppError.badRequest('Nothing to update');
+
+  try {
+    const existing = await db
+      .selectFrom('categories')
+      .select(['id'])
+      .where('id', '=', id)
+      .executeTakeFirst();
+    if (!existing) throw AppError.notFound('Category not found');
+
+    await db
+      .updateTable('categories')
+      .set(updateFields as never)
+      .where('id', '=', id)
+      .execute();
+
+    // Fetch the updated row to return
+    return getCategoryById(id);
+  } catch (err: unknown) {
+    if (err instanceof AppError) throw err;
+    if (err instanceof Error && 'code' in err && (err as { code: string }).code === '23505') {
+      throw AppError.conflict('A category with this slug already exists');
+    }
+    if (err instanceof Error && 'code' in err && (err as { code: string }).code === '23503') {
+      throw AppError.badRequest('Parent category not found');
+    }
+    throw err;
+  }
+}
+
+export async function deleteCategory(id: string) {
+  const db = getDatabase();
+  try {
+    const result = await sql`DELETE FROM categories WHERE id = ${id}`.execute(db);
+    if (result.numAffectedRows === 0n) throw AppError.notFound('Category not found');
+  } catch (err: unknown) {
+    if (err instanceof AppError) throw err;
+    if (err instanceof Error && 'code' in err && (err as { code: string }).code === '23503') {
+      throw AppError.badRequest('Cannot delete category: it has child categories or products');
+    }
+    throw err;
+  }
+}
+
+// --- Product Management ---
+
+export interface AdminProductInput {
+  name: string;
+  slug: string;
+  description?: string | null;
+  status?: string;
+  categoryId?: string | null;
+}
+
+export async function listAllProducts(statusFilter?: string) {
+  const db = getDatabase();
+  let query = db
+    .selectFrom('products')
+    .leftJoin('categories', 'categories.id', 'products.category_id')
+    .leftJoin('prices', 'prices.product_id', 'products.id')
+    .select([
+      'products.id',
+      'products.name',
+      'products.slug',
+      'products.description',
+      'products.status',
+      'products.category_id',
+      'categories.name as category_name',
+      sql<string | null>`CAST(prices.amount AS TEXT)`.as('price'),
+      'products.created_at',
+      'products.updated_at',
+    ])
+    .orderBy('products.created_at', 'desc');
+
+  if (statusFilter) {
+    query = query.where('products.status', '=', statusFilter);
+  }
+
+  const rows = await query.execute();
+  return rows.map(mapProduct);
+}
+
+export async function getProductById(id: string) {
+  const db = getDatabase();
+  const row = await db
+    .selectFrom('products')
+    .leftJoin('categories', 'categories.id', 'products.category_id')
+    .leftJoin('prices', 'prices.product_id', 'products.id')
+    .select([
+      'products.id',
+      'products.name',
+      'products.slug',
+      'products.description',
+      'products.status',
+      'products.category_id',
+      'categories.name as category_name',
+      sql<string | null>`CAST(prices.amount AS TEXT)`.as('price'),
+      'products.created_at',
+      'products.updated_at',
+    ])
+    .where('products.id', '=', id)
+    .executeTakeFirst();
+
+  if (!row) throw AppError.notFound('Product not found');
+  return mapProduct(row);
+}
+
+export async function createProduct(data: AdminProductInput) {
+  const db = getDatabase();
+  try {
+    const result = await sql<{
+      id: string; name: string; slug: string; description: string | null;
+      status: string; category_id: string | null; created_at: string; updated_at: string;
+    }>`
+      INSERT INTO products (name, slug, description, status, category_id, created_at, updated_at)
+      VALUES (${data.name}, ${data.slug}, ${data.description ?? null}, ${data.status ?? 'draft'}, ${data.categoryId ?? null}, now(), now())
+      RETURNING id, name, slug, description, status, category_id, created_at, updated_at
+    `.execute(db);
+    return mapProduct({
+      ...result.rows[0]!,
+      category_name: null,
+      price: null,
+    });
+  } catch (err: unknown) {
+    if (err instanceof Error && 'code' in err && (err as { code: string }).code === '23505') {
+      throw AppError.conflict('A product with this slug already exists');
+    }
+    throw err;
+  }
+}
+
+export async function updateProduct(
+  id: string,
+  data: { name?: string; slug?: string; description?: string | null; status?: string; categoryId?: string | null },
+) {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+
+  const updateFields: Record<string, string | null> = { updated_at: now };
+
+  if (data.name !== undefined) updateFields.name = data.name;
+  if (data.slug !== undefined) updateFields.slug = data.slug;
+  if (data.description !== undefined) updateFields.description = data.description;
+  if (data.status !== undefined) updateFields.status = data.status;
+  if (data.categoryId !== undefined) updateFields.category_id = data.categoryId;
+
+  const customKeys = Object.keys(updateFields).filter((k) => k !== 'updated_at');
+  if (customKeys.length === 0) throw AppError.badRequest('Nothing to update');
+
+  try {
+    const existing = await db
+      .selectFrom('products')
+      .select(['id'])
+      .where('id', '=', id)
+      .executeTakeFirst();
+    if (!existing) throw AppError.notFound('Product not found');
+
+    await db
+      .updateTable('products')
+      .set(updateFields as never)
+      .where('id', '=', id)
+      .execute();
+
+    return getProductById(id);
+  } catch (err: unknown) {
+    if (err instanceof AppError) throw err;
+    if (err instanceof Error && 'code' in err && (err as { code: string }).code === '23505') {
+      throw AppError.conflict('A product with this slug already exists');
+    }
+    if (err instanceof Error && 'code' in err && (err as { code: string }).code === '23503') {
+      throw AppError.badRequest('Category not found');
+    }
+    if (err instanceof Error && 'code' in err && (err as { code: string }).code === '23514') {
+      throw AppError.badRequest('Invalid status value (must be draft, active, or archived)');
+    }
+    throw err;
+  }
+}
+
+export async function deleteProduct(id: string) {
+  const db = getDatabase();
+  try {
+    const result = await sql`DELETE FROM products WHERE id = ${id}`.execute(db);
+    if (result.numAffectedRows === 0n) throw AppError.notFound('Product not found');
+  } catch (err: unknown) {
+    if (err instanceof AppError) throw err;
+    if (err instanceof Error && 'code' in err && (err as { code: string }).code === '23503') {
+      throw AppError.badRequest('Cannot delete product: it has associated orders');
+    }
+    throw err;
+  }
+}
+
+export async function setProductStatus(id: string, status: string) {
+  const validStatuses = ['draft', 'active', 'archived'];
+  if (!validStatuses.includes(status)) {
+    throw AppError.badRequest('Status must be one of: draft, active, archived');
+  }
+
+  const db = getDatabase();
+  const result = await sql`
+    UPDATE products SET status = ${status}, updated_at = now()
+    WHERE id = ${id}
+    RETURNING id
+  `.execute(db);
+
+  if (result.numAffectedRows === 0n) throw AppError.notFound('Product not found');
+  return getProductById(id);
+}

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyToken } from './tokens.js';
 import { AppError } from '../errors/AppError.js';
+import { getDatabase } from '../db/database.js';
 
 // Augment Express Request to carry authenticated user info
 declare global {
@@ -10,6 +11,7 @@ declare global {
       user?: {
         id: string;
         email: string;
+        role?: string;
       };
     }
   }
@@ -48,4 +50,46 @@ export function authenticate(
   } catch (error: unknown) {
     next(error);
   }
+}
+
+/**
+ * Authorization middleware factory.
+ * Must be used after `authenticate`.
+ * Looks up the user's role from the database (server-authoritative)
+ * and verifies it matches one of the allowed roles.
+ */
+export function authorize(...allowedRoles: string[]) {
+  return async function authorizeMiddleware(
+    req: Request,
+    _res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw AppError.unauthorized('Authentication required');
+      }
+
+      const db = getDatabase();
+      const user = await db
+        .selectFrom('users')
+        .select(['role'])
+        .where('users.id', '=', req.user.id)
+        .executeTakeFirst();
+
+      if (!user) {
+        throw AppError.unauthorized('User not found');
+      }
+
+      if (!allowedRoles.includes(user.role)) {
+        throw AppError.forbidden('Insufficient permissions');
+      }
+
+      // Attach role to req.user for downstream use
+      req.user.role = user.role;
+
+      next();
+    } catch (error: unknown) {
+      next(error);
+    }
+  };
 }
