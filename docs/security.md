@@ -111,7 +111,7 @@ This prevents accidental use of insecure defaults in production.
 
 ## Dependency Security
 
-- `npm audit` reports 0 vulnerabilities (production and full).
+- `pnpm audit` reports 0 vulnerabilities (production and full).
 - Only 8 production dependencies, all well-maintained.
 - Dev dependencies are not required at runtime.
 

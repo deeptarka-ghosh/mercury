@@ -34,9 +34,9 @@ All data is stored in PostgreSQL. Kysely provides type-safe query building. The 
 
 ### Migration behavior
 
-- `npm run migrate` — runs all pending migrations up
-- `npm run migrate:down` — runs one `down()` step (use with caution)
-- `npm run migrate:list` — shows migration status
+- `pnpm run migrate` — runs all pending migrations up
+- `pnpm run migrate:down` — runs one `down()` step (use with caution)
+- `pnpm run migrate:list` — shows migration status
 - Kysely's `kysely_migration_lock` table prevents concurrent migrations
 - All down migrations exist but are **not CI-tested**; prefer backup-based rollback
 

@@ -95,7 +95,7 @@ Internet
 | Software | Version | Notes |
 |----------|---------|-------|
 | **Node.js** | >= 24.19.0 | Check `engines` in `package.json` |
-| **npm** | Bundled | Used for dependency install and scripts |
+| **pnpm** | Bundled | Used for dependency install and scripts |
 | **PostgreSQL** | >= 16 | Compatible with Kysely + `pg` driver |
 | **Nginx** | Latest stable | Reverse proxy + TLS termination |
 | **systemd** | Built-in | Process management |
@@ -143,7 +143,7 @@ From `package.json`:
 
 ### Dependencies
 
-**Production** (installed via `npm install --omit=dev`):
+**Production** (installed via `pnpm install --prod`):
 
 | Package | Purpose |
 |---------|---------|
@@ -163,7 +163,7 @@ From `package.json`:
 
 ```bash
 # From the application directory:
-npm install --omit=dev
+pnpm install --prod
 npm run build
 node dist/index.js
 ```
@@ -307,13 +307,13 @@ host    mercury   mercury  127.0.0.1/32   scram-sha-256
 
 ```bash
 cd /opt/mercury/current
-sudo -u mercury npm run migrate
+sudo -u mercury pnpm run migrate
 ```
 
 ### Verify migration status
 
 ```bash
-sudo -u mercury npm run migrate:list
+sudo -u mercury pnpm run migrate:list
 ```
 
 All 19 migrations should show `executed: true`.
@@ -361,9 +361,9 @@ All migrations are in `src/migrations/` and use Kysely's `FileMigrationProvider`
 ### Safe migration procedure
 
 1. **Backup the database** before any migration.
-2. **Verify current state** with `npm run migrate:list`.
-3. **Run pending migrations** with `npm run migrate`.
-4. **Verify result** with `npm run migrate:list` — all should show `Success`.
+2. **Verify current state** with `pnpm run migrate:list`.
+3. **Run pending migrations** with `pnpm run migrate`.
+4. **Verify result** with `pnpm run migrate:list` — all should show `Success`.
 5. **Smoke test** the application.
 
 ### Migration lock behavior
@@ -374,12 +374,12 @@ Kysely's `Migrator` uses a `kysely_migration_lock` table with a `LOCK TABLE` str
 
 - Check the error message — it will identify the failed migration
 - Resolve the issue (incorrect data, constraint violation, etc.)
-- Run `npm run migrate` again — it will re-attempt the failed migration
+- Run `pnpm run migrate` again — it will re-attempt the failed migration
 - If the migration partially applied, you may need to create a compensating migration
 
 ### Rollback strategy
 
-**Kysely's built-in migration down is NOT available as a general-purpose rollback tool.** The `npm run migrate:down` script runs a single `down()` step, but:
+**Kysely's built-in migration down is NOT available as a general-purpose rollback tool.** The `pnpm run migrate:down` script runs a single `down()` step, but:
 
 - Down migrations are not tested in CI
 - Down migrations may fail if production data violates constraints
@@ -649,10 +649,10 @@ sudo journalctl -u mercury -f --since "30 seconds ago"  # verify startup
 14. Upload source or clone from repository
 15. Create `/opt/mercury/.env` with production values (see §4)
 16. Set permissions: `chown -R mercury:mercury /opt/mercury` and `chmod 600 /opt/mercury/.env`
-17. Install production dependencies: `sudo -u mercury npm install --omit=dev`
-18. Build: `sudo -u mercury npm run build`
-19. Run migrations: `sudo -u mercury npm run migrate`
-20. Verify migration status: `sudo -u mercury npm run migrate:list`
+17. Install production dependencies: `sudo -u mercury pnpm install --prod`
+18. Build: `sudo -u mercury pnpm run build`
+19. Run migrations: `sudo -u mercury pnpm run migrate`
+20. Verify migration status: `sudo -u mercury pnpm run migrate:list`
 
 ### Phase 6: Configure process management
 
@@ -703,13 +703,13 @@ cd /opt/mercury
 # OR git pull in the current directory
 
 # 3. Install dependencies if changed
-sudo -u mercury npm install --omit=dev
+sudo -u mercury pnpm install --prod
 
 # 4. Build
-sudo -u mercury npm run build
+sudo -u mercury pnpm run build
 
 # 5. Run migrations
-sudo -u mercury npm run migrate
+sudo -u mercury pnpm run migrate
 
 # 6. Restart
 sudo systemctl restart mercury
@@ -750,7 +750,7 @@ sudo -u postgres pg_restore -d mercury --clean /backups/mercury-before-deploy.du
 ```
 
 **Down migration** (use only if you understand the risks):
-1. `npm run migrate:down` — runs the most recent `down()` function
+1. `pnpm run migrate:down` — runs the most recent `down()` function
 2. Verify the migration was removed from `kysely_migration`
 3. Note: this is not reliable if the migration deleted data or changed structure
 
@@ -804,16 +804,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm run migrate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm run lint
+      - run: pnpm run migrate
         env:
           DATABASE_URL: postgresql://mercury:mercury@localhost:5432/mercury_test
-      - run: npm run test
+      - run: pnpm run test
         env:
           DATABASE_URL: postgresql://mercury:mercury@localhost:5432/mercury_test
-      - run: npm run build
+      - run: pnpm run build
 ```
 
 ### Deployment trigger
@@ -826,7 +826,7 @@ After CI passes on `main`, a deployment could be triggered:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - run: ssh mercury@vps 'cd /opt/mercury && git pull && npm ci --omit=dev && npm run build && npm run migrate && sudo systemctl restart mercury'
+      - run: ssh mercury@vps 'cd /opt/mercury && git pull && pnpm install --frozen-lockfile --prod && pnpm run build && pnpm run migrate && sudo systemctl restart mercury'
 ```
 
 This is a simplified example. A production deployment pipeline should include secrets management, pre-deployment backup, and automated health verification.

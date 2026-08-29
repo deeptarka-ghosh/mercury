@@ -2,12 +2,12 @@
 FROM node:24-alpine AS builder
 
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package.json pnpm-lock.yaml .npmrc ./
+RUN corepack enable && pnpm install --frozen-lockfile
 
 COPY tsconfig.json tsconfig.build.json ./
 COPY src/ ./src/
-RUN npm run build
+RUN pnpm run build
 
 # Stage 2: Run
 FROM node:24-alpine

@@ -429,7 +429,7 @@ All 19 migrations should be present.
 | **Production config validation** | Fails fast on dev defaults in production mode | ✅ |
 | **Error responses** | No stack traces, no internals, no secrets | ✅ |
 | **Logging** | No secrets logged; only method/url/status/duration | ✅ |
-| **Dependency audit** | `npm audit` — 0 vulnerabilities | ✅ |
+| **Dependency audit** | `pnpm audit` — 0 vulnerabilities | ✅ |
 | **CORS** | Not configured (no frontend yet) | ⚪️ Deferred |
 
 ### Rate limiter limitation
@@ -492,13 +492,13 @@ sudo -u postgres pg_dump -Fc mercury > /backups/mercury/pre-migrate-$(date +%Y%m
 
 # 2. Check current state
 cd /opt/mercury/current
-sudo -u mercury npm run migrate:list
+sudo -u mercury pnpm run migrate:list
 
 # 3. Run pending
-sudo -u mercury npm run migrate
+sudo -u mercury pnpm run migrate
 
 # 4. Verify
-sudo -u mercury npm run migrate:list
+sudo -u mercury pnpm run migrate:list
 ```
 
 #### Rollback
