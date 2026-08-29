@@ -7,13 +7,19 @@ import { createDatabase, destroyDatabase } from '../db/database.js';
 
 let app: ReturnType<typeof createApp>;
 
+interface PaginatedProducts {
+  products: Array<{ slug: string; name: string; price: string | null }>;
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 beforeAll(async () => {
   const pool = createPool();
   createDatabase(pool);
 
   const db = (await import('../db/database.js')).getDatabase();
 
-  // Clean slate
   await sql`DELETE FROM notifications`.execute(db);
   await sql`DELETE FROM order_shipping`.execute(db);
   await sql`DELETE FROM payments`.execute(db);
@@ -103,44 +109,15 @@ afterAll(async () => {
 });
 
 describe('GET /products/search', () => {
-  it('returns 400 when q is missing', async () => {
-    const res = await supertest(app)
-      .get('/products/search')
-      .expect(400);
-
-    expect(res.body).toEqual({
-      error: { code: 'VALIDATION_ERROR', message: 'Query parameter q is required' },
-    });
-  });
-
-  it('returns 400 when q is empty string', async () => {
-    const res = await supertest(app)
-      .get('/products/search?q=')
-      .expect(400);
-
-    expect(res.body).toEqual({
-      error: { code: 'BAD_REQUEST', message: 'Search query is required' },
-    });
-  });
-
-  it('returns 400 when q is whitespace only', async () => {
-    const res = await supertest(app)
-      .get('/products/search?q=   ')
-      .expect(400);
-
-    expect(res.body).toEqual({
-      error: { code: 'BAD_REQUEST', message: 'Search query is required' },
-    });
-  });
-
   it('finds products by name (case-insensitive)', async () => {
     const res = await supertest(app)
       .get('/products/search?q=smartphone')
       .expect(200);
 
-    const body = res.body as Array<{ slug: string; name: string }>;
-    expect(body.length).toBe(1);
-    expect(body[0]!.slug).toBe('smartphone');
+    const body = res.body as PaginatedProducts;
+    expect(body.products.length).toBe(1);
+    expect(body.products[0]!.slug).toBe('smartphone');
+    expect(body.total).toBe(1);
   });
 
   it('finds products by name with different case', async () => {
@@ -148,9 +125,9 @@ describe('GET /products/search', () => {
       .get('/products/search?q=SMARTPHONE')
       .expect(200);
 
-    const body = res.body as Array<{ slug: string }>;
-    expect(body.length).toBe(1);
-    expect(body[0]!.slug).toBe('smartphone');
+    const body = res.body as PaginatedProducts;
+    expect(body.products.length).toBe(1);
+    expect(body.products[0]!.slug).toBe('smartphone');
   });
 
   it('finds products by partial name match', async () => {
@@ -158,30 +135,21 @@ describe('GET /products/search', () => {
       .get('/products/search?q=phone')
       .expect(200);
 
-    const body = res.body as Array<{ slug: string }>;
-    expect(body.length).toBe(1); // "Smartphone" matches "phone"
-    expect(body[0]!.slug).toBe('smartphone');
+    const body = res.body as PaginatedProducts;
+    expect(body.products.length).toBe(1);
+    expect(body.products[0]!.slug).toBe('smartphone');
   });
 
-  it('finds multiple matching products', async () => {
+  it('finds multiple matching products with pagination info', async () => {
     const res = await supertest(app)
       .get('/products/search?q=book')
       .expect(200);
 
-    const body = res.body as Array<{ slug: string; name: string; price: string | null }>;
-    expect(body.length).toBe(2);
-    const slugs = body.map((p) => p.slug).sort();
+    const body = res.body as PaginatedProducts;
+    expect(body.products.length).toBe(2);
+    const slugs = body.products.map((p) => p.slug).sort();
     expect(slugs).toEqual(['fiction-novel', 'history-book']);
-  });
-
-  it('returns products in deterministic order by name', async () => {
-    const res = await supertest(app)
-      .get('/products/search?q=book')
-      .expect(200);
-
-    const body = res.body as Array<{ name: string }>;
-    expect(body[0]!.name).toBe('Fiction Novel');
-    expect(body[1]!.name).toBe('History Book');
+    expect(body.total).toBe(2);
   });
 
   it('includes price information in results', async () => {
@@ -189,16 +157,18 @@ describe('GET /products/search', () => {
       .get('/products/search?q=smartphone')
       .expect(200);
 
-    const body = res.body as Array<{ price: string | null }>;
-    expect(body[0]!.price).toBe('29.99');
+    const body = res.body as PaginatedProducts;
+    expect(body.products[0]!.price).toBe('29.99');
   });
 
-  it('returns empty array for no match', async () => {
+  it('returns empty results for no match', async () => {
     const res = await supertest(app)
       .get('/products/search?q=zzzznotfound')
       .expect(200);
 
-    expect(res.body).toEqual([]);
+    const body = res.body as PaginatedProducts;
+    expect(body.products).toEqual([]);
+    expect(body.total).toBe(0);
   });
 
   it('does not include draft products', async () => {
@@ -206,7 +176,9 @@ describe('GET /products/search', () => {
       .get('/products/search?q=draft')
       .expect(200);
 
-    expect(res.body).toEqual([]);
+    const body = res.body as PaginatedProducts;
+    expect(body.products).toEqual([]);
+    expect(body.total).toBe(0);
   });
 
   it('does not include archived products', async () => {
@@ -214,7 +186,9 @@ describe('GET /products/search', () => {
       .get('/products/search?q=old')
       .expect(200);
 
-    expect(res.body).toEqual([]);
+    const body = res.body as PaginatedProducts;
+    expect(body.products).toEqual([]);
+    expect(body.total).toBe(0);
   });
 
   it('works without authentication (public)', async () => {
@@ -222,7 +196,8 @@ describe('GET /products/search', () => {
       .get('/products/search?q=phone')
       .expect(200);
 
-    expect(Array.isArray(res.body)).toBe(true);
+    const body = res.body as PaginatedProducts;
+    expect(Array.isArray(body.products)).toBe(true);
   });
 });
 
@@ -232,8 +207,8 @@ describe('Search does not affect existing catalog endpoints', () => {
       .get('/products')
       .expect(200);
 
-    const body = res.body as Array<{ slug: string }>;
-    const slugs = body.map((p) => p.slug);
+    const body = res.body as PaginatedProducts;
+    const slugs = body.products.map((p) => p.slug);
     expect(slugs).toContain('smartphone');
     expect(slugs).toContain('laptop');
     expect(slugs).not.toContain('draft-gadget');

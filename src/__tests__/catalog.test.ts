@@ -133,14 +133,17 @@ describe('GET /categories/:slug', () => {
 });
 
 describe('GET /products', () => {
-  it('returns only active products', async () => {
+  it('returns only active products (paginated)', async () => {
     const res = await supertest(app)
       .get('/products')
       .expect(200);
 
-    const body = res.body as Array<{ slug: string; status: string }>;
-    expect(body.length).toBe(3);
-    const drafts = body.filter((p) => p.slug === 'draft-item');
+    const body = res.body as { products: Array<{ slug: string; status: string }>; total: number; limit: number; offset: number };
+    expect(body.products.length).toBe(3);
+    expect(body.total).toBe(3);
+    expect(body.limit).toBe(50);
+    expect(body.offset).toBe(0);
+    const drafts = body.products.filter((p) => p.slug === 'draft-item');
     expect(drafts.length).toBe(0);
   });
 
@@ -149,9 +152,9 @@ describe('GET /products', () => {
       .get('/products')
       .expect(200);
 
-    const body = res.body as Array<{ slug: string; category: string | null; price: string | null }>;
-    const smartphone = body.find((p) => p.slug === 'smartphone');
-    const novel = body.find((p) => p.slug === 'novel');
+    const body = res.body as { products: Array<{ slug: string; category: string | null; price: string | null }> };
+    const smartphone = body.products.find((p) => p.slug === 'smartphone');
+    const novel = body.products.find((p) => p.slug === 'novel');
     expect(smartphone!.category).toBe('Electronics');
     expect(novel!.category).toBeNull();
     expect(smartphone!.price).toBe('29.99');
@@ -163,19 +166,19 @@ describe('GET /products', () => {
       .get('/products?category=electronics')
       .expect(200);
 
-    const body = res.body as Array<{ slug: string }>;
-    expect(body.length).toBe(2);
-    expect(body[0]!.slug).toBe('laptop');
-    expect(body[1]!.slug).toBe('smartphone');
+    const body = res.body as { products: Array<{ slug: string }> };
+    expect(body.products.length).toBe(2);
+    expect(body.products[0]!.slug).toBe('laptop');
+    expect(body.products[1]!.slug).toBe('smartphone');
   });
 
-  it('returns empty array for category with no products', async () => {
+  it('returns empty for category with no products', async () => {
     const res = await supertest(app)
       .get('/products?category=books')
       .expect(200);
 
-    const body = res.body as Array<unknown>;
-    expect(body.length).toBe(0);
+    const body = res.body as { products: Array<unknown> };
+    expect(body.products.length).toBe(0);
   });
 });
 
@@ -241,7 +244,8 @@ describe('Catalog does not require authentication', () => {
       .get('/products')
       .expect(200);
 
-    expect(Array.isArray(res.body)).toBe(true);
+    expect((res.body as Record<string, unknown>)).toHaveProperty('products');
+    expect(Array.isArray((res.body as { products: unknown[] }).products)).toBe(true);
   });
 
   it('categories endpoint works without auth header', async () => {

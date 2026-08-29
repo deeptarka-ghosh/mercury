@@ -14,6 +14,18 @@ export function errorHandler(err: Error, _req: Request, res: Response, _next: Ne
     return;
   }
 
+  // Handle errors with explicit statusCode/code (e.g. MOBILE_VERIFICATION_REQUIRED)
+  if ('statusCode' in err && 'code' in err) {
+    const typedErr = err as { statusCode: number; code: string; message: string };
+    res.status(typedErr.statusCode).json({
+      error: {
+        code: typedErr.code,
+        message: typedErr.message,
+      },
+    });
+    return;
+  }
+
   if (err instanceof AppError && err.isOperational) {
     res.status(err.statusCode).json(err.toJSON());
     return;

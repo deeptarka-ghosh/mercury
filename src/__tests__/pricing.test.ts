@@ -328,9 +328,9 @@ describe('Pricing integration with catalog', () => {
       .get('/products')
       .expect(200);
 
-    const body = res.body as Array<{ slug: string; price: string | null }>;
-    expect(body.length).toBeGreaterThan(0);
-    for (const product of body) {
+    const body = res.body as { products: Array<{ slug: string; price: string | null }> };
+    expect(body.products.length).toBeGreaterThan(0);
+    for (const product of body.products) {
       expect(product).toHaveProperty('price');
     }
   });
@@ -342,8 +342,8 @@ describe('Pricing does not affect other modules', () => {
       .get('/products')
       .expect(200);
 
-    const body = res.body as Array<{ slug: string }>;
-    const slugs = body.map((p) => p.slug);
+    const body = res.body as { products: Array<{ slug: string }> };
+    const slugs = body.products.map((p) => p.slug);
     expect(slugs).toContain('priced-widget');
     expect(slugs).toContain('unpriced-widget');
     expect(slugs).not.toContain('draft-widget');

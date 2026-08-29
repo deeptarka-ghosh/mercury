@@ -2,7 +2,7 @@
 
 ## Overview
 
-All data is stored in PostgreSQL. Kysely provides type-safe query building. The schema is defined by 19 ordered migrations in `src/migrations/`.
+All data is stored in PostgreSQL. Kysely provides type-safe query building. The schema is defined by 23 ordered migrations in `src/migrations/`.
 
 ### Migration chain
 
@@ -27,6 +27,10 @@ All data is stored in PostgreSQL. Kysely provides type-safe query building. The 
 | 017 | `add_user_role` | Alter (add column) |
 | 018 | `create_audit_log` | Table |
 | 019 | `add_performance_indexes` | Indexes |
+| 020 | `create_media_items` | Tables (media_items + product_media_sorts) |
+| 021 | `create_rbac` | Tables (roles + user_roles), seed 4 roles, migrate admin users |
+| 022 | `drop_users_role` | Alter (drop deprecated column `role` from users) |
+| 023 | `create_customer_auth` | Alter (add mobile fields to users) + Table (user_identities) |
 
 ### Migration behavior
 
@@ -47,10 +51,28 @@ All data is stored in PostgreSQL. Kysely provides type-safe query building. The 
 | `id` | UUID | PK DEFAULT gen_random_uuid() | |
 | `email` | VARCHAR(255) | NOT NULL, UNIQUE | |
 | `password_hash` | VARCHAR(255) | NOT NULL | bcrypt hash |
-| `role` | VARCHAR(20) | NOT NULL DEFAULT 'user', CHECK (role IN ('user','admin')) | Added in 017 |
+| `mobile_number` | VARCHAR(20) | | E.164 format, unique when verified |
+| `mobile_verified_at` | TIMESTAMPTZ | | Set after OTP verification |
 | `email_verified_at` | TIMESTAMPTZ | | Nullable; no email verification implemented |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 | `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
+
+Indexes: partial unique index `idx_users_verified_mobile` ON (mobile_number) WHERE mobile_number IS NOT NULL AND mobile_verified_at IS NOT NULL
+
+### user_identities
+
+Linked authentication providers for a user (email, google, apple, facebook, mobile). Added in migration 023.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | UUID | PK DEFAULT gen_random_uuid() | |
+| `user_id` | UUID | NOT NULL, FK → users(id) ON DELETE CASCADE | |
+| `provider` | VARCHAR(30) | NOT NULL, CHECK (IN ('email','google','apple','facebook','mobile')) | |
+| `provider_subject` | VARCHAR(255) | NOT NULL | Stable external subject ID |
+| `provider_email` | VARCHAR(255) | | Nullable (Apple may use private relay) |
+| `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
+
+Indexes: UNIQUE (provider, provider_subject), idx_user_identities_user_id
 
 ### refresh_tokens
 
@@ -261,6 +283,61 @@ Index: `idx_wishlist_items_user_id`
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
 Indexes: `idx_audit_log_created_at` (DESC), `idx_audit_log_action`, `idx_audit_log_resource` (resource_type, resource_id)
+
+### media_items
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | UUID | PK DEFAULT gen_random_uuid() | |
+| `user_id` | UUID | NOT NULL, FK → users(id) ON DELETE CASCADE | Uploader for ownership checks |
+| `entity_type` | VARCHAR(20) | NOT NULL, CHECK (IN ('product','review')) | Polymorphic owner type |
+| `entity_id` | UUID | NOT NULL | Polymorphic owner ID |
+| `file_type` | VARCHAR(10) | NOT NULL, CHECK (IN ('image','video')) | |
+| `mime_type` | VARCHAR(100) | NOT NULL | Authoritative MIME (sniffed from magic bytes) |
+| `original_name` | TEXT | | Client-provided filename (not trusted for security) |
+| `storage_path` | TEXT | NOT NULL | Relative path in the storage backend |
+| `file_size` | INTEGER | NOT NULL | Bytes |
+| `width` | INTEGER | | Pixel width (null if undetermined) |
+| `height` | INTEGER | | Pixel height (null if undetermined) |
+| `duration_seconds` | NUMERIC(10,3) | | Video duration (null for images) |
+| `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
+
+Indexes: `idx_media_items_entity` (entity_type, entity_id), `idx_media_items_user_id`
+
+### product_media_sorts
+
+Explicit ordering for product media items. Review media uses creation date ordering instead.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `product_id` | UUID | NOT NULL, FK → products(id) ON DELETE CASCADE | |
+| `media_id` | UUID | NOT NULL, FK → media_items(id) ON DELETE CASCADE | |
+| `sort_order` | INTEGER | NOT NULL DEFAULT 0 | 0-based display order |
+
+Primary key: (product_id, media_id)
+
+### roles
+
+Fixed set of 4 backend roles seeded in migration 021 with stable UUIDs.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | UUID | PK | Fixed UUIDs: 00000000-0000-0000-0000-000000000001 through 00000000-0000-0000-0000-000000000004 |
+| `name` | VARCHAR(50) | NOT NULL, UNIQUE | `backend_read`, `backend_write`, `backend_admin`, `user_management` |
+| `description` | TEXT | NOT NULL | Human-readable description of the role's permissions |
+| `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
+
+### user_roles
+
+Many-to-many relationship between users and backend roles.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `user_id` | UUID | NOT NULL, FK → users(id) ON DELETE CASCADE | |
+| `role_id` | UUID | NOT NULL, FK → roles(id) ON DELETE CASCADE | |
+| `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
+
+Primary key: (user_id, role_id). Index: `idx_user_roles_user_id`
 
 ## Key Database Semantics
 

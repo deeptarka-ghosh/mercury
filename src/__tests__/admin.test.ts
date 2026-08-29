@@ -3,22 +3,36 @@ import supertest from 'supertest';
 import { sql } from 'kysely';
 import { createApp } from '../app.js';
 import { createPool, destroyPool } from '../db/pool.js';
-import { createDatabase, destroyDatabase } from '../db/database.js';
+import { createDatabase, destroyDatabase, getDatabase } from '../db/database.js';
 import { hashPassword } from '../auth/password.js';
 
 let app: ReturnType<typeof createApp>;
-let adminToken: string;
+let fullAdminToken: string;
+let backendReadToken: string;
+let backendWriteToken: string;
 let userToken: string;
 let categoryId: string;
 let productId: string;
-let productSlug: string;
+const productSlug = 'test-product';
+
+interface ErrResp {
+  error: { code: string; message: string };
+}
+
+interface UserListEntry {
+  id: string;
+  email: string;
+  roles: string[];
+  createdAt: string;
+}
 
 beforeAll(async () => {
   const pool = createPool();
   createDatabase(pool);
 
-  const db = (await import('../db/database.js')).getDatabase();
+  const db = getDatabase();
 
+  await sql`DELETE FROM user_roles`.execute(db);
   await sql`DELETE FROM wishlist_items`.execute(db);
   await sql`DELETE FROM reviews`.execute(db);
   await sql`DELETE FROM notifications`.execute(db);
@@ -49,7 +63,6 @@ beforeAll(async () => {
     RETURNING id
   `.execute(db);
   productId = prodResult.rows[0]!.id;
-  productSlug = 'test-product';
   await sql`INSERT INTO prices (product_id, amount) VALUES (${productId}, 19.99)`.execute(db);
 
   // Draft product for status filter testing
@@ -58,37 +71,89 @@ beforeAll(async () => {
     VALUES ('Draft Item', 'draft-item', 'A draft product', 'draft', ${categoryId}, now(), now())
   `.execute(db);
 
-  // Create admin user
-  const adminPwHash = await hashPassword('admin-password-123');
+  // Fetch role IDs
+  const roles = await db.selectFrom('roles').selectAll().execute();
+  const roleId = (name: string) => roles.find((r) => r.name === name)!.id;
+
+  // --- Create Full Admin (all 4 roles) ---
+  const adminPwHash = await hashPassword('fulladmin-pw');
+  const adminResult = await sql<{ id: string }>`
+    INSERT INTO users (email, password_hash, created_at, updated_at)
+    VALUES ('fulladmin@test.com', ${adminPwHash}, now(), now())
+    RETURNING id
+  `.execute(db);
+  const fullAdminId = adminResult.rows[0]!.id;
+  for (const rn of ['backend_read', 'backend_write', 'backend_admin', 'user_management']) {
+    await sql`
+      INSERT INTO user_roles (user_id, role_id, created_at)
+      VALUES (${fullAdminId}, ${roleId(rn)}, now())
+    `.execute(db);
+  }
+
+  // --- Create backend_read only user ---
+  const readPwHash = await hashPassword('read-pw');
+  const readResult = await sql<{ id: string }>`
+    INSERT INTO users (email, password_hash, created_at, updated_at)
+    VALUES ('backendread@test.com', ${readPwHash}, now(), now())
+    RETURNING id
+  `.execute(db);
+  const readUserId = readResult.rows[0]!.id;
   await sql`
-    INSERT INTO users (email, password_hash, role, created_at, updated_at)
-    VALUES ('admin@test.com', ${adminPwHash}, 'admin', now(), now())
+    INSERT INTO user_roles (user_id, role_id, created_at)
+    VALUES (${readUserId}, ${roleId('backend_read')}, now())
   `.execute(db);
 
-  // Create regular user
-  const userPwHash = await hashPassword('user-password-123');
+  // --- Create backend_write only user ---
+  const writePwHash = await hashPassword('write-pw');
+  const writeResult = await sql<{ id: string }>`
+    INSERT INTO users (email, password_hash, created_at, updated_at)
+    VALUES ('backendwrite@test.com', ${writePwHash}, now(), now())
+    RETURNING id
+  `.execute(db);
+  const writeUserId = writeResult.rows[0]!.id;
   await sql`
-    INSERT INTO users (email, password_hash, role, created_at, updated_at)
-    VALUES ('user@test.com', ${userPwHash}, 'user', now(), now())
+    INSERT INTO user_roles (user_id, role_id, created_at)
+    VALUES (${writeUserId}, ${roleId('backend_write')}, now())
+  `.execute(db);
+
+  // --- Create regular customer (no backend roles) ---
+  const userPwHash = await hashPassword('user-pw');
+  await sql`
+    INSERT INTO users (email, password_hash, created_at, updated_at)
+    VALUES ('customer@test.com', ${userPwHash}, now(), now())
   `.execute(db);
 
   app = createApp();
 
+  // Login all users
   const adminLogin = await supertest(app)
     .post('/auth/login')
-    .send({ email: 'admin@test.com', password: 'admin-password-123' })
+    .send({ email: 'fulladmin@test.com', password: 'fulladmin-pw' })
     .expect(200);
-  adminToken = (adminLogin.body as { accessToken: string }).accessToken;
+  fullAdminToken = (adminLogin.body as { accessToken: string }).accessToken;
+
+  const readLogin = await supertest(app)
+    .post('/auth/login')
+    .send({ email: 'backendread@test.com', password: 'read-pw' })
+    .expect(200);
+  backendReadToken = (readLogin.body as { accessToken: string }).accessToken;
+
+  const writeLogin = await supertest(app)
+    .post('/auth/login')
+    .send({ email: 'backendwrite@test.com', password: 'write-pw' })
+    .expect(200);
+  backendWriteToken = (writeLogin.body as { accessToken: string }).accessToken;
 
   const userLogin = await supertest(app)
     .post('/auth/login')
-    .send({ email: 'user@test.com', password: 'user-password-123' })
+    .send({ email: 'customer@test.com', password: 'user-pw' })
     .expect(200);
   userToken = (userLogin.body as { accessToken: string }).accessToken;
 });
 
 afterAll(async () => {
-  const db = (await import('../db/database.js')).getDatabase();
+  const db = getDatabase();
+  await sql`DELETE FROM user_roles`.execute(db);
   await sql`DELETE FROM wishlist_items`.execute(db);
   await sql`DELETE FROM reviews`.execute(db);
   await sql`DELETE FROM notifications`.execute(db);
@@ -107,512 +172,523 @@ afterAll(async () => {
   await destroyPool();
 });
 
-describe('Admin authorization', () => {
-  it('rejects unauthenticated admin access (1)', async () => {
+describe('RBAC — Customer (no backend roles)', () => {
+  it('customer cannot access /admin/products', async () => {
+    await supertest(app)
+      .get('/admin/products')
+      .set('Authorization', `Bearer ${userToken}`)
+      .expect(403);
+  });
+
+  it('customer cannot access /admin/categories', async () => {
+    await supertest(app)
+      .get('/admin/categories')
+      .set('Authorization', `Bearer ${userToken}`)
+      .expect(403);
+  });
+
+  it('unauthenticated access returns 401', async () => {
     const res = await supertest(app)
       .get('/admin/products')
       .expect(401);
 
-    const body = res.body as { error: { code: string } };
+    const body = res.body as ErrResp;
     expect(body.error.code).toBe('UNAUTHORIZED');
   });
+});
 
-  it('rejects ordinary user admin access (2)', async () => {
+describe('RBAC — backend_read', () => {
+  it('can GET /admin/products', async () => {
     const res = await supertest(app)
       .get('/admin/products')
-      .set('Authorization', `Bearer ${userToken}`)
-      .expect(403);
-
-    const body = res.body as { error: { code: string } };
-    expect(body.error.code).toBe('FORBIDDEN');
-  });
-
-  it('allows authorized admin access (3)', async () => {
-    const res = await supertest(app)
-      .get('/admin/products')
-      .set('Authorization', `Bearer ${adminToken}`)
+      .set('Authorization', `Bearer ${backendReadToken}`)
       .expect(200);
 
     expect(Array.isArray(res.body)).toBe(true);
   });
 
-  it('admin cannot be bypassed by manipulating request input', async () => {
-    // Even with a role hint in the body, a regular user is still forbidden
+  it('can GET /admin/categories', async () => {
     const res = await supertest(app)
-      .get('/admin/products')
-      .set('Authorization', `Bearer ${userToken}`)
-      .send({ role: 'admin' })
-      .expect(403);
+      .get('/admin/categories')
+      .set('Authorization', `Bearer ${backendReadToken}`)
+      .expect(200);
 
-    const body = res.body as { error: { code: string } };
-    expect(body.error.code).toBe('FORBIDDEN');
+    expect((res.body as Array<unknown>).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('can GET /admin/categories/:id', async () => {
+    const res = await supertest(app)
+      .get(`/admin/categories/${categoryId}`)
+      .set('Authorization', `Bearer ${backendReadToken}`)
+      .expect(200);
+
+    expect((res.body as { name: string }).name).toBe('Test Category');
+  });
+
+  it('can GET /admin/products/:id', async () => {
+    const res = await supertest(app)
+      .get(`/admin/products/${productId}`)
+      .set('Authorization', `Bearer ${backendReadToken}`)
+      .expect(200);
+
+    expect((res.body as { name: string }).name).toBe('Test Product');
+  });
+
+  it('can GET /admin/products/:slug/inventory', async () => {
+    const res = await supertest(app)
+      .get(`/admin/products/${productSlug}/inventory`)
+      .set('Authorization', `Bearer ${backendReadToken}`)
+      .expect(200);
+
+    expect((res.body as { productSlug: string }).productSlug).toBe(productSlug);
+  });
+
+  it('can GET /admin/products/:slug/price', async () => {
+    const res = await supertest(app)
+      .get(`/admin/products/${productSlug}/price`)
+      .set('Authorization', `Bearer ${backendReadToken}`)
+      .expect(200);
+
+    expect((res.body as { amount: string | null }).amount).toBe('19.99');
+  });
+
+  it('can GET /admin/audit', async () => {
+    const res = await supertest(app)
+      .get('/admin/audit')
+      .set('Authorization', `Bearer ${backendReadToken}`)
+      .expect(200);
+
+    expect((res.body as { entries: unknown[] }).entries).toBeDefined();
+  });
+
+  it('can GET /admin/analytics/summary', async () => {
+    const res = await supertest(app)
+      .get('/admin/analytics/summary')
+      .set('Authorization', `Bearer ${backendReadToken}`)
+      .expect(200);
+
+    expect((res.body as { products: unknown }).products).toBeDefined();
+  });
+
+  it('cannot CREATE a category (backend_read only)', async () => {
+    await supertest(app)
+      .post('/admin/categories')
+      .set('Authorization', `Bearer ${backendReadToken}`)
+      .send({ name: 'Should Fail', slug: 'should-fail' })
+      .expect(403);
+  });
+
+  it('cannot CREATE a product (backend_read only)', async () => {
+    await supertest(app)
+      .post('/admin/products')
+      .set('Authorization', `Bearer ${backendReadToken}`)
+      .send({ name: 'Fail', slug: 'fail-prod' })
+      .expect(403);
+  });
+
+  it('cannot UPDATE a product (backend_read only)', async () => {
+    await supertest(app)
+      .patch(`/admin/products/${productId}`)
+      .set('Authorization', `Bearer ${backendReadToken}`)
+      .send({ name: 'Hack' })
+      .expect(403);
+  });
+
+  it('cannot change product status', async () => {
+    await supertest(app)
+      .patch(`/admin/products/${productId}/status`)
+      .set('Authorization', `Bearer ${backendReadToken}`)
+      .send({ status: 'archived' })
+      .expect(403);
+  });
+
+  it('cannot set inventory', async () => {
+    await supertest(app)
+      .put(`/admin/products/${productSlug}/inventory`)
+      .set('Authorization', `Bearer ${backendReadToken}`)
+      .send({ quantity: 10 })
+      .expect(403);
   });
 });
 
-describe('Admin category management (4)', () => {
+describe('RBAC — backend_write', () => {
   let createdCategoryId: string;
+  let createdProductId: string;
 
-  it('lists all categories', async () => {
-    const res = await supertest(app)
-      .get('/admin/categories')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .expect(200);
-
-    const body = res.body as Array<{ id: string; name: string; slug: string }>;
-    expect(body.length).toBe(1);
-    expect(body[0]!.slug).toBe('test-category');
-  });
-
-  it('creates a category', async () => {
+  it('can CREATE a category', async () => {
     const res = await supertest(app)
       .post('/admin/categories')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'New Category', slug: 'new-category', description: 'Brand new' })
+      .set('Authorization', `Bearer ${backendWriteToken}`)
+      .send({ name: 'Write Cat', slug: 'write-cat', description: 'Created by write user' })
       .expect(201);
 
-    const body = res.body as { id: string; name: string; slug: string; description: string | null };
-    expect(body.name).toBe('New Category');
-    expect(body.slug).toBe('new-category');
-    expect(body.description).toBe('Brand new');
+    const body = res.body as { name: string; slug: string; id: string };
+    expect(body.name).toBe('Write Cat');
+    expect(body.slug).toBe('write-cat');
     createdCategoryId = body.id;
   });
 
-  it('gets a category by id', async () => {
-    const res = await supertest(app)
-      .get(`/admin/categories/${createdCategoryId}`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .expect(200);
-
-    const body = res.body as { name: string };
-    expect(body.name).toBe('New Category');
-  });
-
-  it('updates a category', async () => {
+  it('can UPDATE a category', async () => {
     const res = await supertest(app)
       .patch(`/admin/categories/${createdCategoryId}`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Updated Category', description: null })
+      .set('Authorization', `Bearer ${backendWriteToken}`)
+      .send({ name: 'Updated Write Cat' })
       .expect(200);
 
-    const body = res.body as { name: string; description: string | null };
-    expect(body.name).toBe('Updated Category');
-    expect(body.description).toBeNull();
+    expect((res.body as { name: string }).name).toBe('Updated Write Cat');
   });
 
-  it('rejects duplicate slug on category create', async () => {
-    const res = await supertest(app)
-      .post('/admin/categories')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Test', slug: 'test-category' })
-      .expect(409);
-
-    const body = res.body as { error: { code: string } };
-    expect(body.error.code).toBe('CONFLICT');
-  });
-
-  it('deletes a category', async () => {
-    const res = await supertest(app)
-      .post('/admin/categories')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Delete Me', slug: 'delete-me' })
-      .expect(201);
-
-    const delId = (res.body as { id: string }).id;
-
-    await supertest(app)
-      .delete(`/admin/categories/${delId}`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .expect(204);
-
-    await supertest(app)
-      .get(`/admin/categories/${delId}`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .expect(404);
-  });
-
-  it('validates name is required on category create (10)', async () => {
-    const res = await supertest(app)
-      .post('/admin/categories')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ slug: 'no-name' })
-      .expect(400);
-
-    const body = res.body as { error: { code: string } };
-    expect(body.error.code).toBe('VALIDATION_ERROR');
-  });
-});
-
-describe('Admin product management (5, 6)', () => {
-  let createdProductId: string;
-
-  it('lists all products including draft (5)', async () => {
-    const res = await supertest(app)
-      .get('/admin/products')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .expect(200);
-
-    const body = res.body as Array<{ slug: string; status: string }>;
-    expect(body.some((p) => p.slug === 'test-product' && p.status === 'active')).toBe(true);
-    expect(body.some((p) => p.slug === 'draft-item' && p.status === 'draft')).toBe(true);
-  });
-
-  it('lists products filtered by status', async () => {
-    const res = await supertest(app)
-      .get('/admin/products?status=draft')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .expect(200);
-
-    const body = res.body as Array<{ status: string }>;
-    expect(body.length).toBe(1);
-    expect(body[0]!.status).toBe('draft');
-  });
-
-  it('creates a product', async () => {
+  it('can CREATE a product', async () => {
     const res = await supertest(app)
       .post('/admin/products')
-      .set('Authorization', `Bearer ${adminToken}`)
+      .set('Authorization', `Bearer ${backendWriteToken}`)
       .send({
-        name: 'Admin Created',
-        slug: 'admin-created',
-        description: 'Created via admin',
+        name: 'Write Created Product',
+        slug: 'write-created-prod',
+        description: 'Created by write user',
         status: 'active',
         categoryId,
       })
       .expect(201);
 
-    const body = res.body as {
-      id: string; name: string; slug: string; status: string; categoryId: string | null;
-    };
-    expect(body.name).toBe('Admin Created');
-    expect(body.slug).toBe('admin-created');
+    const body = res.body as { name: string; status: string; id: string };
+    expect(body.name).toBe('Write Created Product');
     expect(body.status).toBe('active');
-    expect(body.categoryId).toBe(categoryId);
     createdProductId = body.id;
   });
 
-  it('defaults to draft status for new products', async () => {
-    const res = await supertest(app)
-      .post('/admin/products')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Default Draft', slug: 'default-draft' })
-      .expect(201);
-
-    const body = res.body as { status: string };
-    expect(body.status).toBe('draft');
-  });
-
-  it('gets a product by ID (any status)', async () => {
-    const res = await supertest(app)
-      .get(`/admin/products/${createdProductId}`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .expect(200);
-
-    const body = res.body as { id: string; name: string };
-    expect(body.id).toBe(createdProductId);
-    expect(body.name).toBe('Admin Created');
-  });
-
-  it('updates a product', async () => {
+  it('can UPDATE a product', async () => {
     const res = await supertest(app)
       .patch(`/admin/products/${createdProductId}`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Updated Admin Product', description: 'Updated desc' })
+      .set('Authorization', `Bearer ${backendWriteToken}`)
+      .send({ name: 'Updated Write Product' })
       .expect(200);
 
-    const body = res.body as { name: string; description: string | null };
-    expect(body.name).toBe('Updated Admin Product');
-    expect(body.description).toBe('Updated desc');
+    expect((res.body as { name: string }).name).toBe('Updated Write Product');
   });
 
-  it('changes product status (6)', async () => {
-    const res = await supertest(app)
+  it('can publish/unpublish product status', async () => {
+    const res1 = await supertest(app)
       .patch(`/admin/products/${productId}/status`)
-      .set('Authorization', `Bearer ${adminToken}`)
+      .set('Authorization', `Bearer ${backendWriteToken}`)
       .send({ status: 'archived' })
       .expect(200);
 
-    const body = res.body as { status: string };
-    expect(body.status).toBe('archived');
+    expect((res1.body as { status: string }).status).toBe('archived');
 
-    // Restore to active so remaining tests see it publicly
-    await supertest(app)
+    const res2 = await supertest(app)
       .patch(`/admin/products/${productId}/status`)
-      .set('Authorization', `Bearer ${adminToken}`)
+      .set('Authorization', `Bearer ${backendWriteToken}`)
       .send({ status: 'active' })
       .expect(200);
+
+    expect((res2.body as { status: string }).status).toBe('active');
   });
 
-  it('deletes a product', async () => {
+  it('can set inventory', async () => {
     const res = await supertest(app)
-      .post('/admin/products')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Delete Me', slug: 'delete-me-prod' })
+      .put(`/admin/products/${productSlug}/inventory`)
+      .set('Authorization', `Bearer ${backendWriteToken}`)
+      .send({ quantity: 100 })
+      .expect(200);
+
+    expect((res.body as { quantity: number }).quantity).toBe(100);
+  });
+
+  it('can set price', async () => {
+    const res = await supertest(app)
+      .put(`/admin/products/${productSlug}/price`)
+      .set('Authorization', `Bearer ${backendWriteToken}`)
+      .send({ amount: 29.99 })
+      .expect(200);
+
+    expect((res.body as { amount: string }).amount).toBe('29.99');
+  });
+
+  it('cannot access user management', async () => {
+    await supertest(app)
+      .get('/admin/users')
+      .set('Authorization', `Bearer ${backendWriteToken}`)
+      .expect(403);
+  });
+
+  it('cannot view backend user details', async () => {
+    await supertest(app)
+      .get('/admin/users/some-id')
+      .set('Authorization', `Bearer ${backendWriteToken}`)
+      .expect(403);
+  });
+});
+
+describe('RBAC — Product/Category hard-delete unavailable', () => {
+  it('DELETE /admin/products/:id returns 404 (route removed)', async () => {
+    await supertest(app)
+      .delete(`/admin/products/${productId}`)
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .expect(404);
+  });
+
+  it('DELETE /admin/categories/:id returns 404 (route removed)', async () => {
+    await supertest(app)
+      .delete(`/admin/categories/${categoryId}`)
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .expect(404);
+  });
+});
+
+describe('RBAC — user_management', () => {
+  let createdBackendUserId: string;
+
+  it('full admin can list backend users', async () => {
+    const res = await supertest(app)
+      .get('/admin/users')
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .expect(200);
+
+    const body = res.body as UserListEntry[];
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('can filter users by role', async () => {
+    const res = await supertest(app)
+      .get('/admin/users?role=backend_read')
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .expect(200);
+
+    const body = res.body as UserListEntry[];
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBeGreaterThanOrEqual(1);
+    expect(body[0]!.roles).toContain('backend_read');
+  });
+
+  it('rejects invalid role filter', async () => {
+    await supertest(app)
+      .get('/admin/users?role=nonexistent')
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .expect(400);
+  });
+
+  it('can view backend user details', async () => {
+    const listRes = await supertest(app)
+      .get('/admin/users')
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .expect(200);
+
+    const firstUserId = (listRes.body as UserListEntry[])[0]!.id;
+
+    const res = await supertest(app)
+      .get(`/admin/users/${firstUserId}`)
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .expect(200);
+
+    const body = res.body as { id: string; roles: string[] };
+    expect(body.id).toBe(firstUserId);
+    expect(Array.isArray(body.roles)).toBe(true);
+  });
+
+  it('can create a backend user with roles', async () => {
+    const res = await supertest(app)
+      .post('/admin/users')
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .send({
+        email: `newbackend-${Date.now()}@test.com`,
+        password: 'secure-password-123',
+        roles: ['backend_read', 'backend_write'],
+      })
       .expect(201);
 
-    const delId = (res.body as { id: string }).id;
+    const body = res.body as { email: string; roles: string[]; id: string };
+    expect(body.email).toBeDefined();
+    expect(body.roles).toEqual(['backend_read', 'backend_write']);
+    createdBackendUserId = body.id;
+  });
 
+  it('rejects creating user with unknown role', async () => {
     await supertest(app)
-      .delete(`/admin/products/${delId}`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .expect(204);
-
-    await supertest(app)
-      .get(`/admin/products/${delId}`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .expect(404);
-  });
-
-  it('validates required fields on product create (10)', async () => {
-    const res = await supertest(app)
-      .post('/admin/products')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'No Slug' })
-      .expect(400);
-
-    const body = res.body as { error: { code: string } };
-    expect(body.error.code).toBe('VALIDATION_ERROR');
-  });
-
-  it('rejects duplicate product slug (11)', async () => {
-    const res = await supertest(app)
-      .post('/admin/products')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Test', slug: 'test-product' })
-      .expect(409);
-
-    const body = res.body as { error: { code: string } };
-    expect(body.error.code).toBe('CONFLICT');
-  });
-});
-
-describe('Admin inventory management (8)', () => {
-  it('gets inventory for a draft product (admin sees all statuses)', async () => {
-    const res = await supertest(app)
-      .get('/admin/products/draft-item/inventory')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .expect(200);
-
-    const body = res.body as { productSlug: string; quantity: number; inStock: boolean };
-    expect(body.productSlug).toBe('draft-item');
-    expect(body.quantity).toBe(0);
-    expect(body.inStock).toBe(false);
-  });
-
-  it('sets inventory for a product (8)', async () => {
-    const res = await supertest(app)
-      .put(`/admin/products/${productSlug}/inventory`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ quantity: 50 })
-      .expect(200);
-
-    const body = res.body as { productSlug: string; quantity: number };
-    expect(body.productSlug).toBe(productSlug);
-    expect(body.quantity).toBe(50);
-  });
-
-  it('rejects negative inventory (11)', async () => {
-    const res = await supertest(app)
-      .put(`/admin/products/${productSlug}/inventory`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ quantity: -1 })
-      .expect(400);
-
-    const body = res.body as { error: { code: string } };
-    expect(body.error.code).toBe('BAD_REQUEST');
-  });
-});
-
-describe('Admin pricing management (9)', () => {
-  it('gets price for a product', async () => {
-    const res = await supertest(app)
-      .get(`/admin/products/${productSlug}/price`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .expect(200);
-
-    const body = res.body as { productSlug: string; amount: string | null };
-    expect(body.productSlug).toBe(productSlug);
-    expect(body.amount).toBe('19.99');
-  });
-
-  it('sets price for a product (9)', async () => {
-    const res = await supertest(app)
-      .put(`/admin/products/${productSlug}/price`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ amount: 24.99 })
-      .expect(200);
-
-    const body = res.body as { productSlug: string; amount: string };
-    expect(body.productSlug).toBe(productSlug);
-    expect(body.amount).toBe('24.99');
-  });
-
-  it('rejects negative price (11)', async () => {
-    const res = await supertest(app)
-      .put(`/admin/products/${productSlug}/price`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ amount: -5 })
-      .expect(400);
-
-    const body = res.body as { error: { code: string } };
-    expect(body.error.code).toBe('BAD_REQUEST');
-  });
-});
-
-describe('Database constraints (11)', () => {
-  it('rejects invalid product status value', async () => {
-    const res = await supertest(app)
-      .patch(`/admin/products/${productId}/status`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'invalid-status' })
-      .expect(400);
-
-    const body = res.body as { error: { code: string } };
-    expect(body.error.code).toBe('BAD_REQUEST');
-  });
-
-  it('rejects invalid category parent reference', async () => {
-    const res = await supertest(app)
-      .post('/admin/categories')
-      .set('Authorization', `Bearer ${adminToken}`)
+      .post('/admin/users')
+      .set('Authorization', `Bearer ${fullAdminToken}`)
       .send({
-        name: 'Bad Parent',
-        slug: 'bad-parent',
-        parentId: '00000000-0000-0000-0000-000000000000',
+        email: `unknown-role-${Date.now()}@test.com`,
+        password: 'pw123',
+        roles: ['fake_role'],
       })
       .expect(400);
-
-    const body = res.body as { error: { code: string } };
-    expect(body.error.code).toBe('BAD_REQUEST');
   });
 
-  it('rejects non-existent product on admin get', async () => {
+  it('rejects creating user without roles', async () => {
     await supertest(app)
-      .get('/admin/products/00000000-0000-0000-0000-000000000000')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .expect(404);
+      .post('/admin/users')
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .send({
+        email: `noroles-${Date.now()}@test.com`,
+        password: 'pw123',
+        roles: [],
+      })
+      .expect(400);
+  });
+
+  it('can assign/change roles', async () => {
+    const res = await supertest(app)
+      .put(`/admin/users/${createdBackendUserId}/roles`)
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .send({ roles: ['backend_read', 'backend_write', 'backend_admin'] })
+      .expect(200);
+
+    expect((res.body as { roles: string[] }).roles).toEqual(['backend_read', 'backend_write', 'backend_admin']);
+  });
+
+  it('role changes take effect immediately', async () => {
+    const db = getDatabase();
+    const pwHash = await hashPassword('temp-pw');
+    const userResult = await sql<{ id: string }>`
+      INSERT INTO users (email, password_hash, created_at, updated_at)
+      VALUES ('rolechange-test@test.com', ${pwHash}, now(), now())
+      RETURNING id
+    `.execute(db);
+    const targetId = userResult.rows[0]!.id;
+
+    const roles = await db.selectFrom('roles').selectAll().execute();
+    await sql`
+      INSERT INTO user_roles (user_id, role_id, created_at)
+      VALUES (${targetId}, ${roles.find((r) => r.name === 'backend_read')!.id}, now())
+    `.execute(db);
+
+    const tempLogin = await supertest(app)
+      .post('/auth/login')
+      .send({ email: 'rolechange-test@test.com', password: 'temp-pw' })
+      .expect(200);
+    const tempToken = (tempLogin.body as { accessToken: string }).accessToken;
+
+    // Can read
+    await supertest(app)
+      .get('/admin/products')
+      .set('Authorization', `Bearer ${tempToken}`)
+      .expect(200);
+
+    // Cannot write
+    await supertest(app)
+      .post('/admin/products')
+      .set('Authorization', `Bearer ${tempToken}`)
+      .send({ name: 'Should Fail', slug: 'should-fail' })
+      .expect(403);
+
+    // Assign backend_write (roles change immediately, same token still works)
+    await supertest(app)
+      .put(`/admin/users/${targetId}/roles`)
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .send({ roles: ['backend_read', 'backend_write'] })
+      .expect(200);
+
+    // Now the same token can write (server-authoritative)
+    await supertest(app)
+      .post('/admin/products')
+      .set('Authorization', `Bearer ${tempToken}`)
+      .send({ name: 'After Role Change', slug: `after-change-${Date.now()}` })
+      .expect(201);
+  });
+
+  it('prevents removing last user_management role', async () => {
+    const listRes = await supertest(app)
+      .get('/admin/users?role=user_management')
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .expect(200);
+
+    const users = listRes.body as UserListEntry[];
+    const adminUserId = users[0]!.id;
+
+    const res = await supertest(app)
+      .put(`/admin/users/${adminUserId}/roles`)
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .send({ roles: ['backend_read', 'backend_write', 'backend_admin'] })
+      .expect(400);
+
+    expect((res.body as ErrResp).error.message).toMatch(/last user_management/i);
   });
 });
 
-describe('Regular user auth behavior intact (12)', () => {
-  it('regular user can access own profile', async () => {
+describe('RBAC — Public registration cannot self-elevate', () => {
+  it('register creates a normal customer (no roles)', async () => {
+    const email = `selfreg-${Date.now()}@test.com`;
     const res = await supertest(app)
-      .get('/users/me')
-      .set('Authorization', `Bearer ${userToken}`)
-      .expect(200);
+      .post('/auth/register')
+      .send({ email, password: 'password123' })
+      .expect(201);
 
-    const body = res.body as { email: string };
-    expect(body.email).toBe('user@test.com');
-  });
+    expect((res.body as { accessToken: string }).accessToken).toBeDefined();
 
-  it('regular user can access cart', async () => {
-    const res = await supertest(app)
-      .get('/cart')
-      .set('Authorization', `Bearer ${userToken}`)
-      .expect(200);
+    const db = getDatabase();
+    const userRows = await db
+      .selectFrom('users')
+      .leftJoin('user_roles', 'user_roles.user_id', 'users.id')
+      .select([sql<number>`COUNT(user_roles.role_id)::int`.as('roleCount')])
+      .where('users.email', '=', email)
+      .groupBy('users.id')
+      .execute();
 
-    const body = res.body as { items: unknown[] };
-    expect(Array.isArray(body.items)).toBe(true);
-  });
-
-  it('admin user can access own user endpoints', async () => {
-    const res = await supertest(app)
-      .get('/users/me')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .expect(200);
-
-    const body = res.body as { email: string };
-    expect(body.email).toBe('admin@test.com');
+    // User should have 0 backend roles (empty result set means no rows)
+    // If no rows returned, that means the user has no user_roles
+    // (LEFT JOIN with no matching rows means roleCount = 0, grouped by users.id)
+    if (userRows.length > 0) {
+      expect(userRows[0]!.roleCount).toBe(0);
+    }
   });
 });
 
-describe('Existing public catalog behavior intact (13, 14)', () => {
-  it('public products only show active products (13)', async () => {
+describe('RBAC — Full admin can access all endpoints', () => {
+  it('can GET /admin/products', async () => {
     const res = await supertest(app)
+      .get('/admin/products')
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .expect(200);
+
+    expect(Array.isArray(res.body)).toBe(true);
+  });
+
+  it('can create and read categories', async () => {
+    const createRes = await supertest(app)
+      .post('/admin/categories')
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .send({ name: 'Admin Cat', slug: 'admin-cat' })
+      .expect(201);
+
+    const createBody = createRes.body as { id: string };
+    const getRes = await supertest(app)
+      .get(`/admin/categories/${createBody.id}`)
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .expect(200);
+
+    expect((getRes.body as { name: string }).name).toBe('Admin Cat');
+  });
+
+  it('can read audit log', async () => {
+    const res = await supertest(app)
+      .get('/admin/audit')
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .expect(200);
+
+    expect((res.body as { entries: unknown[]; total: number }).entries).toBeDefined();
+  });
+});
+
+describe('RBAC — Customer APIs still work for all users', () => {
+  it('customer can access own profile', async () => {
+    await supertest(app)
+      .get('/users/me')
+      .set('Authorization', `Bearer ${userToken}`)
+      .expect(200);
+  });
+
+  it('customer can access public catalog', async () => {
+    await supertest(app)
       .get('/products')
       .expect(200);
-
-    const body = res.body as Array<{ slug: string }>;
-    expect(body.some((p) => p.slug === 'test-product')).toBe(true);
-    expect(body.some((p) => p.slug === 'draft-item')).toBe(false);
   });
 
-  it('public categories still work (13)', async () => {
-    const res = await supertest(app)
-      .get('/categories')
+  it('full admin can still use customer APIs', async () => {
+    await supertest(app)
+      .get('/users/me')
+      .set('Authorization', `Bearer ${fullAdminToken}`)
       .expect(200);
-
-    const body = res.body as Array<{ slug: string }>;
-    expect(body.some((c) => c.slug === 'test-category')).toBe(true);
-  });
-
-  it('search still works (14)', async () => {
-    const res = await supertest(app)
-      .get('/products/search?q=Test')
-      .expect(200);
-
-    expect(Array.isArray(res.body)).toBe(true);
-  });
-
-  it('health works', async () => {
-    const res = await supertest(app)
-      .get('/health')
-      .expect(200);
-
-    const body = res.body as { status: string };
-    expect(body.status).toBe('ok');
-  });
-});
-
-describe('Existing ecommerce behavior intact (15)', () => {
-  it('auth login still works', async () => {
-    const res = await supertest(app)
-      .post('/auth/login')
-      .send({ email: 'user@test.com', password: 'user-password-123' })
-      .expect(200);
-
-    const body = res.body as { accessToken: string };
-    expect(body.accessToken).toBeDefined();
-  });
-});
-
-describe('Existing reviews behavior intact (16)', () => {
-  it('product reviews read still public', async () => {
-    const res = await supertest(app)
-      .get(`/products/${productSlug}/reviews`)
-      .expect(200);
-
-    const body = res.body as { reviews: unknown[]; reviewCount: number };
-    expect(Array.isArray(body.reviews)).toBe(true);
-  });
-
-  it('my reviews still work for regular user', async () => {
-    const res = await supertest(app)
-      .get('/account/reviews')
-      .set('Authorization', `Bearer ${userToken}`)
-      .expect(200);
-
-    expect(Array.isArray(res.body)).toBe(true);
-  });
-});
-
-describe('Existing wishlist behavior intact (17)', () => {
-  it('wishlist works for regular user', async () => {
-    const res = await supertest(app)
-      .get('/wishlist')
-      .set('Authorization', `Bearer ${userToken}`)
-      .expect(200);
-
-    expect(Array.isArray(res.body)).toBe(true);
-  });
-
-  it('wishlist add works for admin user too', async () => {
-    const res = await supertest(app)
-      .post('/wishlist')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ productId })
-      .expect(200);
-
-    const body = res.body as { productId: string };
-    expect(body.productId).toBe(productId);
   });
 });

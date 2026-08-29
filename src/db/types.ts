@@ -4,8 +4,9 @@ export interface UsersTable {
   id: Generated<string>;
   email: string;
   password_hash: string;
-  role: string;
   email_verified_at: string | null;
+  mobile_number: string | null;
+  mobile_verified_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -165,6 +166,50 @@ export interface AuditLogTable {
   created_at: string;
 }
 
+export interface MediaItemsTable {
+  id: Generated<string>;
+  user_id: string;
+  entity_type: string;
+  entity_id: string;
+  file_type: string;
+  mime_type: string;
+  original_name: string | null;
+  storage_path: string;
+  file_size: number;
+  width: number | null;
+  height: number | null;
+  duration_seconds: string | null;
+  created_at: string;
+}
+
+export interface ProductMediaSortsTable {
+  product_id: string;
+  media_id: string;
+  sort_order: number;
+}
+
+export interface RolesTable {
+  id: string;
+  name: string;
+  description: string;
+  created_at: string;
+}
+
+export interface UserRolesTable {
+  user_id: string;
+  role_id: string;
+  created_at: string;
+}
+
+export interface UserIdentitiesTable {
+  id: Generated<string>;
+  user_id: string;
+  provider: string;
+  provider_subject: string;
+  provider_email: string | null;
+  created_at: Generated<string>;
+}
+
 export interface DB {
   users: UsersTable;
   refresh_tokens: RefreshTokensTable;
@@ -182,4 +227,9 @@ export interface DB {
   reviews: ReviewsTable;
   wishlist_items: WishlistItemsTable;
   audit_log: AuditLogTable;
+  media_items: MediaItemsTable;
+  product_media_sorts: ProductMediaSortsTable;
+  roles: RolesTable;
+  user_roles: UserRolesTable;
+  user_identities: UserIdentitiesTable;
 }

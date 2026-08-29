@@ -24,6 +24,19 @@ export async function checkout(userId: string): Promise<CheckoutResponse> {
   const db = getDatabase();
 
   const result = await db.transaction().execute(async (trx) => {
+    // Step 0: Verify mobile number is verified
+    const user = await trx
+      .selectFrom('users')
+      .select(['mobile_number', 'mobile_verified_at'])
+      .where('id', '=', userId)
+      .executeTakeFirst();
+
+    if (!user || user.mobile_number === null || user.mobile_verified_at === null) {
+      throw Object.assign(
+        new Error('Mobile number verification is required before placing an order.'),
+        { statusCode: 403, code: 'MOBILE_VERIFICATION_REQUIRED' },
+      );
+    }
     // Step 1: Lock the user's cart items
     const cartLock = await trx
       .selectFrom('cart_items')

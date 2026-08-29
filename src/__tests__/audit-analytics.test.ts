@@ -59,20 +59,24 @@ beforeAll(async () => {
     VALUES ('Draft Item', 'draft-item', 'A draft product', 'draft', ${categoryId}, now(), now())
   `.execute(db);
 
-  // Create admin user first (needed for order FK)
+  // Create admin user (with all backend roles via RBAC)
   const adminPwHash = await hashPassword('admin-password-123');
   const adminUserResult = await sql<{ id: string }>`
-    INSERT INTO users (email, password_hash, role, created_at, updated_at)
-    VALUES ('admin@test.com', ${adminPwHash}, 'admin', now(), now())
+    INSERT INTO users (email, password_hash, created_at, updated_at)
+    VALUES ('admin@test.com', ${adminPwHash}, now(), now())
     RETURNING id
   `.execute(db);
   const adminUserId = adminUserResult.rows[0]!.id;
+  const auditRoles = await db.selectFrom('roles').selectAll().execute();
+  for (const r of auditRoles) {
+    await sql`INSERT INTO user_roles (user_id, role_id, created_at) VALUES (${adminUserId}, ${r.id}, now())`.execute(db);
+  }
 
-  // Create regular user
+  // Create regular user (no backend roles)
   const userPwHash = await hashPassword('user-password-123');
   await sql`
-    INSERT INTO users (email, password_hash, role, created_at, updated_at)
-    VALUES ('user@test.com', ${userPwHash}, 'user', now(), now())
+    INSERT INTO users (email, password_hash, created_at, updated_at)
+    VALUES ('user@test.com', ${userPwHash}, now(), now())
   `.execute(db);
 
   // Seed an order with a completed payment for revenue analytics
@@ -435,9 +439,9 @@ describe('Summary analytics (analytics-4, analytics-5)', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
 
-    const body = res.body as { users: { total: number; admins: number } };
+    const body = res.body as { users: { total: number; backendUsers: number } };
     expect(body.users.total).toBeGreaterThanOrEqual(2);
-    expect(body.users.admins).toBeGreaterThanOrEqual(1);
+    expect(body.users.backendUsers).toBeGreaterThanOrEqual(1);
   });
 
   it('returns product counts by status', async () => {
@@ -487,15 +491,14 @@ describe('Order analytics (analytics-5)', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
 
-    const body = res.body as { 
-      orders: Array<{ id: string; status: string; total: string | null }>;
-      totals: Array<{ status: string; count: number; totalAmount: string | null }>;
-      total: number;
+    const body = res.body as {
+      orders: Array<{ status: string; count: number; total: string | null }>;
+      limit: number;
+      offset: number;
     };
 
-    expect(body.orders.length).toBe(2);
-    expect(body.totals.length).toBeGreaterThanOrEqual(2);
-    expect(body.total).toBe(2);
+    expect(body.orders.length).toBeGreaterThanOrEqual(2);
+    expect(body.orders.some((o: { status: string }) => o.status === 'confirmed')).toBe(true);
   });
 
   it('filters orders by status', async () => {
@@ -504,14 +507,13 @@ describe('Order analytics (analytics-5)', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
 
-    const body = res.body as { 
-      orders: Array<{ id: string; status: string }>;
-      total: number;
+    const body = res.body as {
+      orders: Array<{ status: string; count: number }>;
     };
 
     expect(body.orders.length).toBe(1);
     expect(body.orders[0]!.status).toBe('confirmed');
-    expect(body.total).toBe(1);
+    expect(body.orders[0]!.count).toBe(1);
   });
 });
 
@@ -550,14 +552,14 @@ describe('Product sales analytics (analytics-5)', () => {
       .expect(200);
 
     const body = res.body as {
-      products: Array<{ productId: string; name: string; slug: string; totalSold: number; totalRevenue: string | null }>;
-      total: number;
+      products: Array<{ product_id: string; product_name: string; totalSold: number; totalRevenue: string | null }>;
+      limit: number;
+      offset: number;
     };
 
     expect(body.products.length).toBe(1);
     expect(body.products[0]!.totalSold).toBe(3);
     expect(body.products[0]!.totalRevenue).toBe('59.97');
-    expect(body.total).toBe(1);
   });
 });
 

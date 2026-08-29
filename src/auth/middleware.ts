@@ -11,12 +11,57 @@ declare global {
       user?: {
         id: string;
         email: string;
-        role?: string;
       };
     }
   }
 }
 
+const BACKEND_ROLES = new Set([
+  'backend_read',
+  'backend_write',
+  'backend_admin',
+  'user_management',
+]);
+
+/**
+ * Returns true if the given role name is a known backend role.
+ */
+export function isBackendRole(role: string): boolean {
+  return BACKEND_ROLES.has(role);
+}
+
+/**
+ * Fetch a user's assigned role names from the database.
+ * Server-authoritative — always reads fresh from DB, never from JWT.
+ */
+export async function getUserRoles(userId: string): Promise<string[]> {
+  const db = getDatabase();
+  const rows = await db
+    .selectFrom('user_roles')
+    .innerJoin('roles', 'roles.id', 'user_roles.role_id')
+    .select('roles.name')
+    .where('user_roles.user_id', '=', userId)
+    .execute();
+
+  return rows.map((r) => r.name);
+}
+
+/**
+ * Check whether a user has any backend roles at all.
+ */
+export async function hasAnyBackendRole(userId: string): Promise<boolean> {
+  const roles = await getUserRoles(userId);
+  return roles.some((r) => BACKEND_ROLES.has(r));
+}
+
+/**
+ * Authenticate middleware.
+ *
+ * Verifies the JWT access token and attaches user identity to req.user.
+ * Does NOT check roles — that's done by the authorization middleware.
+ *
+ * Returns 401 if the token is missing, invalid, or expired.
+ */
 export function authenticate(
   req: Request,
   _res: Response,
@@ -53,13 +98,17 @@ export function authenticate(
 }
 
 /**
- * Authorization middleware factory.
+ * Middleware factory: require the user to have ALL specified backend roles.
+ *
  * Must be used after `authenticate`.
- * Looks up the user's role from the database (server-authoritative)
- * and verifies it matches one of the allowed roles.
+ * Looks up roles from the database on every request (server-authoritative).
+ *
+ * Returns:
+ *   401 if not authenticated
+ *   403 if authenticated but missing any required role
  */
-export function authorize(...allowedRoles: string[]) {
-  return async function authorizeMiddleware(
+export function requireAllRoles(...requiredRoles: string[]) {
+  return async function requireAllRolesMiddleware(
     req: Request,
     _res: Response,
     next: NextFunction,
@@ -69,27 +118,60 @@ export function authorize(...allowedRoles: string[]) {
         throw AppError.unauthorized('Authentication required');
       }
 
-      const db = getDatabase();
-      const user = await db
-        .selectFrom('users')
-        .select(['role'])
-        .where('users.id', '=', req.user.id)
-        .executeTakeFirst();
+      const roles = await getUserRoles(req.user.id);
+      const roleSet = new Set(roles);
 
-      if (!user) {
-        throw AppError.unauthorized('User not found');
+      for (const role of requiredRoles) {
+        if (!roleSet.has(role)) {
+          throw AppError.forbidden('Insufficient permissions');
+        }
       }
-
-      if (!allowedRoles.includes(user.role)) {
-        throw AppError.forbidden('Insufficient permissions');
-      }
-
-      // Attach role to req.user for downstream use
-      req.user.role = user.role;
 
       next();
     } catch (error: unknown) {
       next(error);
     }
   };
+}
+
+/**
+ * Middleware factory: require the user to have ANY of the specified backend roles.
+ *
+ * Must be used after `authenticate`.
+ * Looks up roles from the database on every request (server-authoritative).
+ *
+ * Returns:
+ *   401 if not authenticated
+ *   403 if authenticated but none of the required roles are held
+ */
+export function requireAnyRole(...requiredRoles: string[]) {
+  return async function requireAnyRoleMiddleware(
+    req: Request,
+    _res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw AppError.unauthorized('Authentication required');
+      }
+
+      const roles = await getUserRoles(req.user.id);
+
+      if (!roles.some((r) => requiredRoles.includes(r))) {
+        throw AppError.forbidden('Insufficient permissions');
+      }
+
+      next();
+    } catch (error: unknown) {
+      next(error);
+    }
+  };
+}
+
+/**
+ * @deprecated Use requireAllRoles / requireAnyRole with specific role names.
+ * Kept for backward compatibility during transition.
+ */
+export function authorize(...allowedRoles: string[]) {
+  return requireAnyRole(...allowedRoles);
 }

@@ -52,18 +52,24 @@ beforeAll(async () => {
   activeProductSlug = 'hardening-prod';
   await sql`INSERT INTO prices (product_id, amount) VALUES (${activeProductId}, 9.99)`.execute(db);
 
-  // Create admin user
+  // Create admin user (with all backend roles via RBAC)
   const adminPwHash = await hashPassword('admin-password-123');
-  await sql`
-    INSERT INTO users (email, password_hash, role, created_at, updated_at)
-    VALUES ('harden-admin@test.com', ${adminPwHash}, 'admin', now(), now())
+  const hardenAdminResult = await sql<{ id: string }>`
+    INSERT INTO users (email, password_hash, created_at, updated_at)
+    VALUES ('harden-admin@test.com', ${adminPwHash}, now(), now())
+    RETURNING id
   `.execute(db);
+  const hardenAdminId = hardenAdminResult.rows[0]!.id;
+  const hardenRoles = await db.selectFrom('roles').selectAll().execute();
+  for (const r of hardenRoles) {
+    await sql`INSERT INTO user_roles (user_id, role_id, created_at) VALUES (${hardenAdminId}, ${r.id}, now())`.execute(db);
+  }
 
-  // Create regular user
+  // Create regular user (no backend roles)
   const userPwHash = await hashPassword('user-password-123');
   await sql`
-    INSERT INTO users (email, password_hash, role, created_at, updated_at)
-    VALUES ('harden-user@test.com', ${userPwHash}, 'user', now(), now())
+    INSERT INTO users (email, password_hash, created_at, updated_at)
+    VALUES ('harden-user@test.com', ${userPwHash}, now(), now())
   `.execute(db);
 
   app = createApp();

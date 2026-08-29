@@ -4,10 +4,13 @@ A production-grade ecommerce backend built with **TypeScript**, **Express 5**, a
 
 ## Status
 
-- **Application**: Feature-complete (19 modules)
+- **Application**: Feature-complete (20 modules)
 - **Stage A**: Production readiness — security hardening, rate limiting, Helmet, config validation — complete
 - **Stage B**: Deployment plan documented — `docs/deployment.md`, `docs/operations.md`
 - **Stage C**: Codebase documentation — this document and `docs/`
+- **Stage D**: Multi-role RBAC — normalized roles table, user_roles join, 4 backend roles, user management API, hard-delete removal — complete
+- **Stage E**: Customer authentication — mobile OTP, social login (Google/Apple/Facebook), identity linking, mobile verification, checkout enforcement — complete
+- **Stage F**: Backend closure — bug hunt, pagination/count consistency, CORS, media audit, documentation, frontend integration guide — complete
 - **Deployment**: Not yet deployed (no Hostinger VPS provisioned)
 
 ## Quick Start
@@ -41,7 +44,7 @@ curl http://localhost:3000/health
 | HTTP framework | Express 5 |
 | Database | PostgreSQL 16+ |
 | Query builder | Kysely 0.29 |
-| Auth | bcrypt + JWT (access + refresh tokens) |
+| Auth | bcrypt + JWT (access + refresh tokens), mobile OTP, Google/Apple/Facebook, RBAC |
 | Logging | pino (structured JSON) |
 | Testing | vitest + supertest (real PostgreSQL) |
 | Security | Helmet, rate limiting, body size limits |
@@ -66,6 +69,8 @@ curl http://localhost:3000/health
 | Wishlist | Per-user, idempotent insert, live pricing |
 | Admin | Role-based authorization, category/product/inventory/price management |
 | Audit + Analytics | Admin mutation audit log, revenue/order/product analytics |
+| Media Upload | File upload, validation (sharp), storage abstraction, product/review attachments |
+| Customer Auth | Mobile OTP, Google/Apple/Facebook login, identity linking, mobile verification |
 
 ## Available Commands
 
@@ -95,6 +100,7 @@ curl http://localhost:3000/health
 | `docs/security.md` | Security posture, rate limiting, concurrency, known limitations |
 | `docs/deployment.md` | Production deployment guide (Stage B) |
 | `docs/operations.md` | Operations runbook, backups, disaster recovery (Stage B) |
+| `docs/frontend-integration.md` | Frontend integration guide: auth, CORS, pagination, error handling, API maps |
 | `PROJECT.md` | Engineering rules and conventions |
 
 ## Project Structure
@@ -111,8 +117,8 @@ mercury/
 │   ├── middleware/            # Request logging + rate limiting
 │   ├── routes/               # Health endpoint
 │   ├── features/             # Domain modules (routes + service per module)
-│   ├── migrations/           # 19 ordered migrations
-│   └── __tests__/            # 23 integration test files
+│   ├── migrations/           # 23 ordered migrations
+│   └── __tests__/            # 24 integration test files
 ├── docs/                     # Documentation
 ├── .env.example
 ├── Dockerfile

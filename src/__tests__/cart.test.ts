@@ -493,6 +493,7 @@ describe('Cart does not affect other modules', () => {
       .get('/products')
       .expect(200);
 
-    expect(Array.isArray(res.body)).toBe(true);
+    expect(Array.isArray((res.body as { products: unknown[] }).products)).toBe(true);
+    expect((res.body as Record<string, unknown>)).toHaveProperty("total");
   });
 });

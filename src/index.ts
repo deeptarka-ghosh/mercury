@@ -10,7 +10,15 @@ import http from 'node:http';
 /**
  * Bootstrap an initial admin user from environment configuration.
  * Only runs when ADMIN_BOOTSTRAP_EMAIL and ADMIN_BOOTSTRAP_PASSWORD are set
- * and no existing admin user is found. Uses bcrypt password hashing (same as registration).
+ * and no existing user with all 4 backend roles is found.
+ *
+ * The bootstrap administrator receives ALL backend roles:
+ * - backend_read
+ * - backend_write
+ * - backend_admin
+ * - user_management
+ *
+ * Uses bcrypt password hashing (same as registration).
  * This is a development-friendly bootstrap — in production, create the first admin
  * through a migration, seed script, or admin creation endpoint instead.
  */
@@ -24,44 +32,66 @@ async function bootstrapAdmin(): Promise<void> {
 
   const db = getDatabase();
 
-  // Check if any admin user exists
-  const existing = await db
-    .selectFrom('users')
-    .select(['id'])
-    .where('role', '=', 'admin')
+  // Check if any user already has the user_management role (indicates an admin exists)
+  const existingAdmin = await db
+    .selectFrom('user_roles')
+    .innerJoin('roles', 'roles.id', 'user_roles.role_id')
+    .select('user_roles.user_id')
+    .where('roles.name', '=', 'user_management')
     .executeTakeFirst();
 
-  if (existing) {
+  if (existingAdmin) {
     logger.info('Admin user already exists — skipping bootstrap');
     return;
   }
 
-  // Check if user with bootstrap email already exists (as non-admin)
+  // Fetch all role IDs
+  const allRoles = await db
+    .selectFrom('roles')
+    .select(['id', 'name'])
+    .execute();
+
+  const roleIds = allRoles.map((r) => r.id);
+
+  // Check if user with bootstrap email already exists
   const existingUser = await db
     .selectFrom('users')
-    .select(['id', 'role'])
+    .select(['id'])
     .where('email', '=', email)
     .executeTakeFirst();
 
   if (existingUser) {
-    // Upgrade existing user to admin
-    await db
-      .updateTable('users')
-      .set({ role: 'admin', updated_at: sql`now()` })
-      .where('id', '=', existingUser.id)
-      .execute();
-    logger.info({ email }, 'Upgraded existing user to admin');
+    // Assign all backend roles
+    for (const roleId of roleIds) {
+      await sql`
+        INSERT INTO user_roles (user_id, role_id, created_at)
+        VALUES (${existingUser.id}, ${roleId}, now())
+        ON CONFLICT DO NOTHING
+      `.execute(db);
+    }
+    logger.info({ email }, 'Assigned all backend roles to existing user');
     return;
   }
 
-  // Create new admin user
+  // Create new admin user with all roles
   const passwordHash = await hashPassword(password);
-  await sql`
-    INSERT INTO users (email, password_hash, role, created_at, updated_at)
-    VALUES (${email}, ${passwordHash}, 'admin', now(), now())
+  const userResult = await sql<{ id: string }>`
+    INSERT INTO users (email, password_hash, created_at, updated_at)
+    VALUES (${email}, ${passwordHash}, now(), now())
+    RETURNING id
   `.execute(db);
 
-  logger.info({ email }, 'Admin user bootstrapped successfully');
+  const userId = userResult.rows[0]!.id;
+
+  // Assign all backend roles
+  for (const roleId of roleIds) {
+    await sql`
+      INSERT INTO user_roles (user_id, role_id, created_at)
+      VALUES (${userId}, ${roleId}, now())
+    `.execute(db);
+  }
+
+  logger.info({ email }, 'Admin user bootstrapped successfully with all backend roles');
 }
 
 function main(): void {

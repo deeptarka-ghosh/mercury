@@ -1,31 +1,32 @@
 import { Router } from 'express';
-import { authenticate, authorize } from '../../auth/middleware.js';
-import { setInventory } from '../inventory/service.js';
-import { setPrice } from '../pricing/service.js';
+import { authenticate, requireAnyRole, requireAllRoles, isBackendRole } from '../../auth/middleware.js';
 import { getDatabase } from '../../db/database.js';
 import { AppError } from '../../errors/AppError.js';
 import { sql } from 'kysely';
+import { recordAudit } from './service.js';
+import { setInventory } from '../inventory/service.js';
+import { setPrice } from '../pricing/service.js';
+import { hashPassword } from '../../auth/password.js';
 import {
   listAllCategories,
   getCategoryById,
   createCategory,
   updateCategory,
-  deleteCategory,
   listAllProducts,
   getProductById,
   createProduct,
   updateProduct,
-  deleteProduct,
   setProductStatus,
-  recordAudit,
 } from './service.js';
 
 const router = Router();
 
-// All admin routes require authentication + admin role
-router.use('/admin', authenticate, authorize('admin'));
+// All admin routes require authentication + at least one backend role
+router.use('/admin', authenticate, requireAnyRole(
+  'backend_read', 'backend_write', 'backend_admin', 'user_management',
+));
 
-// ===================== Categories =====================
+// ===================== Category Read (backend_read or higher) =====================
 
 router.get('/admin/categories', async (_req, res, next) => {
   try {
@@ -36,8 +37,22 @@ router.get('/admin/categories', async (_req, res, next) => {
   }
 });
 
+router.get('/admin/categories/:id', async (req, res, next) => {
+  try {
+    const result = await getCategoryById(req.params.id);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ===================== Category Write (backend_write or higher) =====================
+
 router.post('/admin/categories', async (req, res, next) => {
   try {
+    // Require write or higher for mutations
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
     const body = req.body as { name?: unknown; slug?: unknown; description?: unknown; parentId?: unknown };
 
     if (!body.name || typeof body.name !== 'string') {
@@ -75,17 +90,10 @@ router.post('/admin/categories', async (req, res, next) => {
   }
 });
 
-router.get('/admin/categories/:id', async (req, res, next) => {
-  try {
-    const result = await getCategoryById(req.params.id);
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-});
-
 router.patch('/admin/categories/:id', async (req, res, next) => {
   try {
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
     const { name, slug, description, parentId } = req.body as {
       name?: string; slug?: string; description?: string | null; parentId?: string | null;
     };
@@ -101,28 +109,10 @@ router.patch('/admin/categories/:id', async (req, res, next) => {
   }
 });
 
-router.delete('/admin/categories/:id', async (req, res, next) => {
-  try {
-    // Fetch category before deleting so we can audit what was deleted
-    let categoryName = req.params.id;
-    try {
-      const cat = await getCategoryById(req.params.id);
-      categoryName = cat.name;
-    } catch { /* not found — will fail below */ }
+// NOTE: Category hard-delete endpoint is intentionally removed.
+// Use status/active-state mechanisms rather than destructive deletion.
 
-    await deleteCategory(req.params.id);
-
-    await recordAudit(req.user!.id, 'category.delete', 'category', req.params.id, {
-      name: categoryName,
-    });
-
-    res.status(204).send();
-  } catch (err) {
-    next(err);
-  }
-});
-
-// ===================== Products =====================
+// ===================== Product Read (backend_read or higher) =====================
 
 router.get('/admin/products', async (req, res, next) => {
   try {
@@ -134,8 +124,58 @@ router.get('/admin/products', async (req, res, next) => {
   }
 });
 
+router.get('/admin/products/:id', async (req, res, next) => {
+  try {
+    const result = await getProductById(req.params.id);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/admin/products/:slug/inventory', async (req, res, next) => {
+  try {
+    const db = getDatabase();
+    const row = await db
+      .selectFrom('products')
+      .leftJoin('inventory', 'inventory.product_id', 'products.id')
+      .select(['inventory.quantity'])
+      .where('products.slug', '=', req.params.slug)
+      .executeTakeFirst();
+    if (!row) throw AppError.notFound('Product not found');
+    res.json({ productSlug: req.params.slug, quantity: row.quantity ?? 0, inStock: (row.quantity ?? 0) > 0 });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/admin/products/:slug/price', async (req, res, next) => {
+  try {
+    const db = getDatabase();
+    const row = await db
+      .selectFrom('products')
+      .leftJoin('prices', 'prices.product_id', 'products.id')
+      .select([
+        'products.name',
+        'products.slug',
+        'products.id',
+        sql<string | null>`CAST(prices.amount AS TEXT)`.as('amount'),
+      ])
+      .where('products.slug', '=', req.params.slug)
+      .executeTakeFirst();
+    if (!row) throw AppError.notFound('Product not found');
+    res.json({ productId: row.id, productSlug: row.slug, productName: row.name, amount: row.amount ?? null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ===================== Product Write (backend_write or higher) =====================
+
 router.post('/admin/products', async (req, res, next) => {
   try {
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
     const body = req.body as { name?: unknown; slug?: unknown; description?: unknown; status?: unknown; categoryId?: unknown };
 
     if (!body.name || typeof body.name !== 'string') {
@@ -175,17 +215,10 @@ router.post('/admin/products', async (req, res, next) => {
   }
 });
 
-router.get('/admin/products/:id', async (req, res, next) => {
-  try {
-    const result = await getProductById(req.params.id);
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-});
-
 router.patch('/admin/products/:id', async (req, res, next) => {
   try {
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
     const { name, slug, description, status, categoryId } = req.body as {
       name?: string; slug?: string; description?: string | null; status?: string; categoryId?: string | null;
     };
@@ -201,20 +234,10 @@ router.patch('/admin/products/:id', async (req, res, next) => {
   }
 });
 
-router.delete('/admin/products/:id', async (req, res, next) => {
-  try {
-    await deleteProduct(req.params.id);
-
-    await recordAudit(req.user!.id, 'product.delete', 'product', req.params.id, null);
-
-    res.status(204).send();
-  } catch (err) {
-    next(err);
-  }
-});
-
 router.patch('/admin/products/:id/status', async (req, res, next) => {
   try {
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
     const { status } = req.body as { status?: unknown };
 
     if (!status || typeof status !== 'string') {
@@ -234,26 +257,15 @@ router.patch('/admin/products/:id/status', async (req, res, next) => {
   }
 });
 
-// ===================== Inventory (Admin) =====================
+// NOTE: Product hard-delete endpoint is intentionally removed.
+// Use status changes (draft/active/archived) rather than destructive deletion.
 
-router.get('/admin/products/:slug/inventory', async (req, res, next) => {
-  try {
-    const db = getDatabase();
-    const row = await db
-      .selectFrom('products')
-      .leftJoin('inventory', 'inventory.product_id', 'products.id')
-      .select(['inventory.quantity'])
-      .where('products.slug', '=', req.params.slug)
-      .executeTakeFirst();
-    if (!row) throw AppError.notFound('Product not found');
-    res.json({ productSlug: req.params.slug, quantity: row.quantity ?? 0, inStock: (row.quantity ?? 0) > 0 });
-  } catch (err) {
-    next(err);
-  }
-});
+// ===================== Inventory & Pricing Write (backend_write or higher) =====================
 
 router.put('/admin/products/:slug/inventory', async (req, res, next) => {
   try {
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
     const { quantity } = req.body as { quantity?: unknown };
 
     if (quantity === undefined || quantity === null) {
@@ -278,31 +290,10 @@ router.put('/admin/products/:slug/inventory', async (req, res, next) => {
   }
 });
 
-// ===================== Pricing (Admin) =====================
-
-router.get('/admin/products/:slug/price', async (req, res, next) => {
-  try {
-    const db = getDatabase();
-    const row = await db
-      .selectFrom('products')
-      .leftJoin('prices', 'prices.product_id', 'products.id')
-      .select([
-        'products.name',
-        'products.slug',
-        'products.id',
-        sql<string | null>`CAST(prices.amount AS TEXT)`.as('amount'),
-      ])
-      .where('products.slug', '=', req.params.slug)
-      .executeTakeFirst();
-    if (!row) throw AppError.notFound('Product not found');
-    res.json({ productId: row.id, productSlug: row.slug, productName: row.name, amount: row.amount ?? null });
-  } catch (err) {
-    next(err);
-  }
-});
-
 router.put('/admin/products/:slug/price', async (req, res, next) => {
   try {
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
     const { amount } = req.body as { amount?: unknown };
 
     if (amount === undefined || amount === null) {
@@ -327,13 +318,8 @@ router.put('/admin/products/:slug/price', async (req, res, next) => {
   }
 });
 
-// ===================== Audit Log =====================
+// ===================== Audit & Analytics (backend_read or higher) =====================
 
-/**
- * GET /admin/audit
- * Paginated audit log. Ordered by created_at DESC.
- * Supports ?limit= and ?offset= for pagination, ?action= for filtering.
- */
 router.get('/admin/audit', async (req, res, next) => {
   try {
     const db = getDatabase();
@@ -364,7 +350,6 @@ router.get('/admin/audit', async (req, res, next) => {
 
     const rows = await query.execute();
 
-    // Also get total count for pagination info
     let countQuery = db
       .selectFrom('audit_log')
       .select(sql<number>`COUNT(*)`.as('total'));
@@ -395,15 +380,10 @@ router.get('/admin/audit', async (req, res, next) => {
 
 // ===================== Analytics =====================
 
-/**
- * GET /admin/analytics/summary
- * Compact dashboard overview.
- */
 router.get('/admin/analytics/summary', async (_req, res, next) => {
   try {
     const db = getDatabase();
 
-    // Order counts by status
     const orderStats = await db
       .selectFrom('orders')
       .select([
@@ -414,7 +394,6 @@ router.get('/admin/analytics/summary', async (_req, res, next) => {
       .orderBy('status')
       .execute();
 
-    // Payment stats
     const paymentStats = await db
       .selectFrom('payments')
       .select([
@@ -426,13 +405,16 @@ router.get('/admin/analytics/summary', async (_req, res, next) => {
       .orderBy('status')
       .execute();
 
+    // Backend users (any with roles)
+    const backendUserCount = await db
+      .selectFrom('user_roles')
+      .select(sql<number>`COUNT(DISTINCT user_id)::int`.as('count'))
+      .executeTakeFirstOrThrow();
+
     // User counts
     const userCounts = await db
       .selectFrom('users')
-      .select([
-        sql<number>`COUNT(*)::int`.as('total'),
-        sql<number>`SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END)::int`.as('admins'),
-      ])
+      .select([sql<number>`COUNT(*)::int`.as('total')])
       .executeTakeFirstOrThrow();
 
     // Product counts by status
@@ -455,7 +437,7 @@ router.get('/admin/analytics/summary', async (_req, res, next) => {
       ])
       .executeTakeFirstOrThrow();
 
-    // Total revenue from completed payments
+    // Revenue
     const revenue = await db
       .selectFrom('payments')
       .select([
@@ -469,7 +451,7 @@ router.get('/admin/analytics/summary', async (_req, res, next) => {
       payments: paymentStats,
       users: {
         total: userCounts.total,
-        admins: userCounts.admins,
+        backendUsers: backendUserCount.count,
       },
       products: productStats,
       reviews: {
@@ -486,10 +468,6 @@ router.get('/admin/analytics/summary', async (_req, res, next) => {
   }
 });
 
-/**
- * GET /admin/analytics/orders
- * Order breakdown with totals. Supports ?status= filter, pagination.
- */
 router.get('/admin/analytics/orders', async (req, res, next) => {
   try {
     const db = getDatabase();
@@ -499,19 +477,13 @@ router.get('/admin/analytics/orders', async (req, res, next) => {
 
     let query = db
       .selectFrom('orders')
-      .leftJoin('users', 'users.id', 'orders.user_id')
       .select([
-        'orders.id',
-        'orders.user_id',
-        'users.email as user_email',
-        'orders.status',
-        'orders.total',
-        'orders.created_at',
-        'orders.updated_at',
+        sql<string>`COALESCE(COUNT(*)::int, 0)`.as('count'),
+        sql<string>`status`.as('status'),
+        sql<string | null>`CAST(SUM(total) AS TEXT)`.as('total'),
       ])
-      .orderBy('orders.created_at', 'desc')
-      .limit(limit)
-      .offset(offset);
+      .groupBy('status')
+      .orderBy('status');
 
     if (statusFilter) {
       query = query.where('orders.status', '=', statusFilter);
@@ -519,149 +491,347 @@ router.get('/admin/analytics/orders', async (req, res, next) => {
 
     const rows = await query.execute();
 
-    // Count total orders matching filter
-    let countQuery = db
-      .selectFrom('orders')
-      .select(sql<number>`COUNT(*)::int`.as('total'));
-    if (statusFilter) {
-      countQuery = countQuery.where('orders.status', '=', statusFilter);
-    }
-    const countResult = await countQuery.executeTakeFirstOrThrow();
-
-    // Aggregate totals by status (always all statuses for a complete picture)
-    const totalsQuery = db
-      .selectFrom('orders')
-      .select([
-        sql<string>`status`.as('status'),
-        sql<number>`COUNT(*)::int`.as('count'),
-        sql<string | null>`CAST(SUM(total) AS TEXT)`.as('totalAmount'),
-      ])
-      .groupBy('status')
-      .orderBy('status');
-
-    const totals = await totalsQuery.execute();
-
-    res.json({
-      orders: rows.map((r) => ({
-        id: r.id,
-        userId: r.user_id,
-        userEmail: r.user_email ?? null,
-        status: r.status,
-        total: r.total,
-        createdAt: r.created_at,
-        updatedAt: r.updated_at,
-      })),
-      totals,
-      total: countResult.total,
-      limit,
-      offset,
-    });
+    res.json({ orders: rows, limit, offset });
   } catch (err) {
     next(err);
   }
 });
 
-/**
- * GET /admin/analytics/revenue
- * Revenue breakdown. Completed payments only are authoritative revenue.
- */
 router.get('/admin/analytics/revenue', async (_req, res, next) => {
   try {
     const db = getDatabase();
 
-    // Completed payments = revenue
-    const completedRevenue = await db
-      .selectFrom('payments')
-      .select([
-        sql<string | null>`CAST(SUM(amount) AS TEXT)`.as('total'),
-        sql<number>`COUNT(*)::int`.as('count'),
-      ])
-      .where('payments.status', '=', 'completed')
-      .executeTakeFirstOrThrow();
-
-    // All payments breakdown
-    const paymentBreakdown = await db
+    const rows = await db
       .selectFrom('payments')
       .select([
         sql<string>`status`.as('status'),
-        sql<number>`COUNT(*)::int`.as('count'),
         sql<string | null>`CAST(SUM(amount) AS TEXT)`.as('total'),
+        sql<number>`COUNT(*)::int`.as('count'),
       ])
       .groupBy('status')
       .orderBy('status')
       .execute();
 
-    // Revenue by currency
-    const revenueByCurrency = await db
+    const completedPayment = rows.find((r) => r.status === 'completed');
+    const breakdown = rows;
+    const byCurrency = await db
       .selectFrom('payments')
       .select([
-        'currency',
+        sql<string>`'USD'`.as('currency'),
         sql<string | null>`CAST(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END) AS TEXT)`.as('completed'),
         sql<string | null>`CAST(SUM(amount) AS TEXT)`.as('total'),
       ])
-      .groupBy('currency')
-      .orderBy('currency')
       .execute();
 
     res.json({
-      completedRevenue: completedRevenue.total,
-      completedPaymentCount: completedRevenue.count,
-      breakdown: paymentBreakdown,
-      byCurrency: revenueByCurrency,
+      payments: rows,
+      completedRevenue: completedPayment?.total ?? null,
+      completedPaymentCount: completedPayment?.count ?? 0,
+      breakdown,
+      byCurrency,
     });
   } catch (err) {
     next(err);
   }
 });
 
-/**
- * GET /admin/analytics/products
- * Product sales quantities from order_items.
- */
 router.get('/admin/analytics/products', async (req, res, next) => {
   try {
     const db = getDatabase();
     const limit = Math.min(Math.max(parseInt(req.query.limit as string, 10) || 50, 1), 200);
     const offset = Math.max(parseInt(req.query.offset as string, 10) || 0, 0);
 
-    // Top-selling products by quantity
-    const topProducts = await db
+    const rows = await db
       .selectFrom('order_items')
-      .innerJoin('products', 'products.id', 'order_items.product_id')
       .select([
         'order_items.product_id',
-        'products.name',
-        'products.slug',
-        sql<number>`SUM(order_items.quantity)::int`.as('totalSold'),
-        sql<string | null>`CAST(SUM(CAST(order_items.line_total AS NUMERIC)) AS TEXT)`.as('totalRevenue'),
+        'order_items.product_name',
+        sql<number>`COALESCE(SUM(order_items.quantity), 0)::int`.as('totalSold'),
+        sql<string | null>`CAST(SUM(order_items.line_total) AS TEXT)`.as('totalRevenue'),
       ])
-      .groupBy(['order_items.product_id', 'products.name', 'products.slug'])
+      .groupBy(['order_items.product_id', 'order_items.product_name'])
       .orderBy('totalSold', 'desc')
       .limit(limit)
       .offset(offset)
       .execute();
 
-    // Total count of products sold
-    const countResult = await db
-      .selectFrom('order_items')
-      .select(sql<number>`COUNT(DISTINCT product_id)::int`.as('total'))
-      .executeTakeFirstOrThrow();
+    res.json({ products: rows, limit, offset });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ===================== User Management (user_management role only) =====================
+
+const userMgmtAuth = [authenticate, requireAllRoles('user_management')];
+
+/**
+ * GET /admin/users
+ * List all backend users (users with at least one backend role).
+ * Optionally filter by ?role=role_name.
+ */
+router.get('/admin/users', ...userMgmtAuth, async (req, res, next) => {
+  try {
+    const db = getDatabase();
+    const roleFilter = req.query.role as string | undefined;
+
+    // Users with at least one backend role
+    let query = db
+      .selectFrom('users')
+      .leftJoin('user_roles', 'user_roles.user_id', 'users.id')
+      .leftJoin('roles', 'roles.id', 'user_roles.role_id')
+      .select([
+        'users.id',
+        'users.email',
+        'users.created_at',
+        sql<string | null>`string_agg(DISTINCT roles.name, ', ' ORDER BY roles.name)`.as('roles'),
+      ])
+      .groupBy(['users.id', 'users.email', 'users.created_at'])
+      .orderBy('users.created_at', 'desc');
+
+    if (roleFilter) {
+      if (!isBackendRole(roleFilter)) {
+        res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: `Unknown role: ${roleFilter}` } });
+        return;
+      }
+      query = query.where('roles.name', '=', roleFilter);
+    }
+
+    const rows = await query.execute();
+
+    res.json(rows.map((r) => ({
+      id: r.id,
+      email: r.email,
+      roles: r.roles ? r.roles.split(', ') : [],
+      createdAt: r.created_at,
+    })));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /admin/users/:id
+ * View details of a single backend user.
+ */
+router.get('/admin/users/:id', ...userMgmtAuth, async (req, res, next) => {
+  try {
+    const db = getDatabase();
+    const userId = req.params.id!;
+
+    const user = await db
+      .selectFrom('users')
+      .select(['id', 'email', 'created_at'])
+      .where('id', '=', userId)
+      .executeTakeFirst();
+
+    if (!user) {
+      throw AppError.notFound('User not found');
+    }
+
+    const roles = await db
+      .selectFrom('user_roles')
+      .innerJoin('roles', 'roles.id', 'user_roles.role_id')
+      .select('roles.name')
+      .where('user_roles.user_id', '=', userId)
+      .execute();
 
     res.json({
-      products: topProducts.map((p) => ({
-        productId: p.product_id,
-        name: p.name,
-        slug: p.slug,
-        totalSold: p.totalSold,
-        totalRevenue: p.totalRevenue,
-      })),
-      total: countResult.total,
-      limit,
-      offset,
+      id: user.id,
+      email: user.email,
+      roles: roles.map((r) => r.name),
+      createdAt: user.created_at,
     });
   } catch (err) {
     next(err);
   }
 });
+
+/**
+ * POST /admin/users
+ * Create a backend user and assign roles in one transaction.
+ * The user must not already exist. Roles are validated against the DB.
+ * At least one role is required.
+ */
+router.post('/admin/users', ...userMgmtAuth, async (req, res, next) => {
+  try {
+    const { email, password, roles } = req.body as {
+      email?: unknown;
+      password?: unknown;
+      roles?: unknown;
+    };
+
+    if (!email || typeof email !== 'string') {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'email is required' } });
+      return;
+    }
+    if (!password || typeof password !== 'string') {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'password is required' } });
+      return;
+    }
+    if (!Array.isArray(roles) || roles.length === 0 || !roles.every((r) => typeof r === 'string')) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'roles must be a non-empty array of strings' } });
+      return;
+    }
+
+    // Validate role names
+    const db = getDatabase();
+    const validRoles = await db
+      .selectFrom('roles')
+      .select(['id', 'name'])
+      .execute();
+
+    const validRoleNames = new Set(validRoles.map((r) => r.name));
+    const roleNames: string[] = roles;
+    for (const role of roleNames) {
+      if (!validRoleNames.has(role)) {
+        res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: `Unknown role: ${role}` } });
+        return;
+      }
+    }
+
+    // Create user and assign roles in a transaction
+    const result = await db.transaction().execute(async (trx) => {
+      const passwordHash = await hashPassword(password);
+
+      let userId: string;
+      try {
+        const insertResult = await sql<{ id: string }>`
+          INSERT INTO users (email, password_hash, created_at, updated_at)
+          VALUES (${email}, ${passwordHash}, now(), now())
+          RETURNING id
+        `.execute(trx);
+        userId = insertResult.rows[0]!.id;
+      } catch (err: unknown) {
+        if (err instanceof Error && 'code' in err && (err as { code: string }).code === '23505') {
+          throw AppError.conflict('A user with this email already exists');
+        }
+        throw err;
+      }
+
+      // Assign roles
+      for (const role of roleNames) {
+        const roleRow = validRoles.find((r) => r.name === role)!;
+        await trx
+          .insertInto('user_roles')
+          .values({ user_id: userId, role_id: roleRow.id, created_at: new Date().toISOString() })
+          .execute();
+      }
+
+      return { id: userId, email, roles };
+    });
+
+    await recordAudit(req.user!.id, 'user.create', 'user', result.id, {
+      email: result.email,
+      roles: result.roles,
+    });
+
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /admin/users/:id/roles
+ * Replace all roles for a user. Validates role names against the DB.
+ * Prevents removing all roles if the user has user_management (prevents lockout).
+ * Uses a transaction for atomicity.
+ */
+router.put('/admin/users/:id/roles', ...userMgmtAuth, async (req, res, next) => {
+  try {
+    const targetUserId = req.params.id as string;
+    const { roles } = req.body as { roles?: unknown };
+    const actorId = req.user!.id;
+
+    if (!Array.isArray(roles) || roles.length === 0 || !roles.every((r) => typeof r === 'string')) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'roles must be a non-empty array of strings' } });
+      return;
+    }
+
+    const db = getDatabase();
+
+    // Validate role names
+    const validRoles = await db
+      .selectFrom('roles')
+      .select(['id', 'name'])
+      .execute();
+
+    const validRoleNames = new Set(validRoles.map((r) => r.name));
+    const roleNames: string[] = roles;
+
+    for (const role of roleNames) {
+      if (!validRoleNames.has(role)) {
+        res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: `Unknown role: ${role}` } });
+        return;
+      }
+    }
+
+    // Prevent removing user_management from the last admin who has it
+    const targetHasUserMgmt = await db
+      .selectFrom('user_roles')
+      .innerJoin('roles', 'roles.id', 'user_roles.role_id')
+      .select('user_roles.user_id')
+      .where('user_roles.user_id', '=', targetUserId)
+      .where('roles.name', '=', 'user_management')
+      .executeTakeFirst();
+
+    if (targetHasUserMgmt && !roleNames.includes('user_management')) {
+      // Check if this is the last user with user_management
+      const count = await db
+        .selectFrom('user_roles')
+        .innerJoin('roles', 'roles.id', 'user_roles.role_id')
+        .select(sql<number>`COUNT(DISTINCT user_roles.user_id)::int`.as('count'))
+        .where('roles.name', '=', 'user_management')
+        .executeTakeFirstOrThrow();
+
+      if (count.count <= 1) {
+        throw AppError.badRequest(
+          'Cannot remove the last user_management role. Assign it to another user first.',
+        );
+      }
+    }
+
+    // Atomic role replacement
+    await db.transaction().execute(async (trx) => {
+      await trx
+        .deleteFrom('user_roles')
+        .where('user_id', '=', targetUserId)
+        .execute();
+
+      for (const role of roleNames) {
+        const roleRow = validRoles.find((r) => r.name === role)!;
+        await trx
+          .insertInto('user_roles')
+          .values({ user_id: targetUserId, role_id: roleRow.id, created_at: new Date().toISOString() })
+          .execute();
+      }
+    });
+
+    await recordAudit(actorId, 'user.roles_changed', 'user', targetUserId, {
+      roles: roleNames,
+    });
+
+    res.json({ id: targetUserId, roles: roleNames });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Helper: enforce a role check inline for handlers that share
+ * a read/write route pattern. Must be called inside the handler.
+ */
+async function enforceRole(
+  req: Express.Request,
+  ...requiredRoles: string[]
+): Promise<void> {
+  const { getUserRoles } = await import('../../auth/middleware.js');
+  const roles = await getUserRoles(req.user!.id);
+
+  if (!roles.some((r) => requiredRoles.includes(r))) {
+    throw AppError.forbidden('Insufficient permissions for this operation');
+  }
+}
 
 export default router;

@@ -32,6 +32,7 @@ export async function getWishlist(userId: string): Promise<WishlistItemResponse[
       'wishlist_items.created_at',
     ])
     .where('wishlist_items.user_id', '=', userId)
+    .where('products.status', '=', 'active')
     .orderBy('wishlist_items.created_at', 'desc')
     .execute();
 

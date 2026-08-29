@@ -60,10 +60,10 @@ beforeAll(async () => {
 
   // Create users
   const pwHash = await hashPassword('test-password-123');
-  await sql`INSERT INTO users (email, password_hash, created_at, updated_at)
-    VALUES ('orders-user@example.com', ${pwHash}, now(), now())`.execute(db);
-  await sql`INSERT INTO users (email, password_hash, created_at, updated_at)
-    VALUES ('orders-user2@example.com', ${pwHash}, now(), now())`.execute(db);
+  await sql`INSERT INTO users (email, password_hash, mobile_number, mobile_verified_at, created_at, updated_at)
+    VALUES ('orders-user@example.com', ${pwHash}, '+15551111111', now(), now(), now())`.execute(db);
+  await sql`INSERT INTO users (email, password_hash, mobile_number, mobile_verified_at, created_at, updated_at)
+    VALUES ('orders-user2@example.com', ${pwHash}, '+15552222222', now(), now(), now())`.execute(db);
 
   app = createApp();
 
@@ -211,8 +211,8 @@ describe('GET /orders', () => {
     // Create a fresh user with empty order history
     const pwHash = await hashPassword('fresh-password');
     const db = (await import('../db/database.js')).getDatabase();
-    await sql`INSERT INTO users (email, password_hash, created_at, updated_at)
-      VALUES ('fresh-user@example.com', ${pwHash}, now(), now())`.execute(db);
+    await sql`INSERT INTO users (email, password_hash, mobile_number, mobile_verified_at, created_at, updated_at)
+      VALUES ('fresh-user@example.com', ${pwHash}, '+15553333333', now(), now(), now())`.execute(db);
 
     const loginRes = await supertest(app)
       .post('/auth/login')

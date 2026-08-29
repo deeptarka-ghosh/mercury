@@ -428,8 +428,8 @@ describe('Existing modules remain intact (13)', () => {
       .get('/products')
       .expect(200);
 
-    const body = res.body as Array<{ slug: string }>;
-    expect(body.some((p) => p.slug === 'widget-x')).toBe(true);
+    const body = res.body as { products: Array<{ slug: string }> };
+    expect(body.products.some((p) => p.slug === 'widget-x')).toBe(true);
   });
 
   it('GET /products/search still works', async () => {
@@ -437,7 +437,7 @@ describe('Existing modules remain intact (13)', () => {
       .get('/products/search?q=Widget')
       .expect(200);
 
-    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body).toHaveProperty('products');
   });
 
   it('POST /auth/login still works', async () => {

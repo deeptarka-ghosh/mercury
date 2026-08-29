@@ -1,7 +1,9 @@
 import express from 'express';
+import cors from 'cors';
 import helmet from 'helmet';
 import { requestLogger } from './middleware/requestLogger.js';
 import { errorHandler } from './errors/errorHandler.js';
+import { allowedOrigins } from './config/env.js';
 import healthRouter from './routes/health.js';
 import authRouter from './features/auth/routes.js';
 import usersRouter from './features/users/routes.js';
@@ -17,12 +19,35 @@ import notificationsRouter from './features/notifications/routes.js';
 import reviewsRouter from './features/reviews/routes.js';
 import wishlistRouter from './features/wishlist/routes.js';
 import adminRouter from './features/admin/routes.js';
+import mediaRouter from './features/media/routes.js';
 
 export function createApp(): express.Application {
   const app = express();
 
   // Security headers
   app.use(helmet());
+
+  // CORS — only explicitly configured origins are allowed
+  // No credentials (auth is Bearer header only, not cookies)
+  app.use(cors({
+    origin(origin, callback) {
+      // No Origin header (server-to-server, curl, same-origin browsers) — no ACAO needed
+      if (!origin) {
+        callback(null, false);
+        return;
+      }
+      if (allowedOrigins.includes(origin)) {
+        callback(null, origin); // reflect the specific origin
+        return;
+      }
+      callback(null, false); // unknown origin — deny (no ACAO header)
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: false,
+    maxAge: 86_400,
+    optionsSuccessStatus: 204,
+  }));
 
   app.use(requestLogger);
   app.use(express.json({ limit: '100kb' }));
@@ -41,6 +66,7 @@ export function createApp(): express.Application {
   app.use(reviewsRouter);
   app.use(wishlistRouter);
   app.use(adminRouter);
+  app.use(mediaRouter);
 
   app.use((_req, res) => {
     res.status(404).json({

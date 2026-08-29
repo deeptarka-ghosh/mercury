@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Mercury is a production-grade ecommerce backend API. It is a single-process Node.js application providing RESTful JSON endpoints for a complete ecommerce lifecycle: catalog browsing, cart management, checkout, order processing, payment tracking, shipping, notifications, reviews, wishlist, admin management, audit logging, and analytics.
+Mercury is a production-grade ecommerce backend API. It is a single-process Node.js application providing RESTful JSON endpoints for a complete ecommerce lifecycle: catalog browsing, cart management, checkout, order processing, payment tracking, shipping, notifications, reviews, wishlist, admin management, audit logging, analytics, and media/file upload.
 
 ## Technology Stack
 
@@ -22,6 +22,8 @@ Mercury is a production-grade ecommerce backend API. It is a single-process Node
 | **Formatting** | Prettier | Code formatting |
 | **Security headers** | Helmet | Production HTTP security headers |
 | **Rate limiting** | In-memory sliding window | Process-local; no-op in test mode |
+| **File validation** | sharp | Image decode/integrity/dimensions |
+| **File upload** | multer | Multipart form data handling |
 
 ## Request Flow
 
@@ -39,7 +41,7 @@ Express (app.ts)
     ├── express.json (body parser, 100kb limit)
     │
     ├── Router: /health
-    ├── Router: /auth/*              (auth: register, login, refresh, logout)
+    ├── Router: /auth/*              (auth: register, login, OTP, social, refresh, logout)
     ├── Router: /users/*             (profile: get, update)
     ├── Router: /categories, /products/*  (catalog — public)
     ├── Router: /products/:slug/inventory (public read)
@@ -54,6 +56,10 @@ Express (app.ts)
     ├── Router: /account/reviews/*    (my reviews — authenticated)
     ├── Router: /wishlist/*          (wishlist — authenticated)
     ├── Router: /admin/*             (admin — authenticated + authorized)
+    ├── Router: /admin/products/:productId/media  (admin — upload/delete/reorder media)
+    ├── Router: /account/reviews/:reviewId/media  (authenticated — upload/delete review media)
+    ├── Router: /products/:slug/media             (public — list product media)
+    ├── Router: /products/:slug/reviews/:reviewId/media (public — list review media)
     │
     ├── 404 catch-all
     └── errorHandler
@@ -88,7 +94,7 @@ src/
 ├── routes/
 │   └── health.ts               # GET /health endpoint
 ├── features/                   # Domain modules, each with routes.ts + service.ts
-│   ├── auth/                   # Registration, login, refresh, logout
+│   ├── auth/                   # Registration, login, OTP, social login, refresh, logout
 │   ├── users/                  # Profile management
 │   ├── catalog/                # Categories, products, search
 │   ├── inventory/              # Stock levels
@@ -101,8 +107,9 @@ src/
 │   ├── notifications/          # In-app notifications
 │   ├── reviews/                # Product reviews
 │   ├── wishlist/               # Product wishlist
-│   └── admin/                  # Admin management + audit + analytics
-├── migrations/                 # Kysely file-based migrations (001-019)
+│   ├── admin/                  # Admin management + audit + analytics
+│   └── media/                  # File upload + validation + storage abstraction
+├── migrations/                 # Kysely file-based migrations (001-023)
 └── __tests__/                  # Integration tests
 ```
 
@@ -112,6 +119,12 @@ Each feature module follows a consistent pattern:
 
 - **`routes.ts`**: Express Router with endpoint definitions, body parsing, validation, middleware, and error handling
 - **`service.ts`**: Business logic, database queries, AppError throwing
+
+The media module additionally includes:
+
+- **`types.ts`**: Shared interfaces, constants, and the `MediaStorage` abstraction interface
+- **`storage.ts`**: `MediaStorage` implementation (`LocalMediaStorage` with date-based directories)
+- **`validation.ts`**: Centralized file validation (magic byte sniffing, sharp image decode, ffprobe video probe)
 
 Modules do not use a separate data-access layer — Kysely queries are in the service files. This avoids unnecessary abstraction for a single-database application.
 
@@ -135,10 +148,16 @@ Roles are looked up from the database on every admin request, not from JWT claim
 ### Feature-complete, not over-engineered
 The application is feature-complete for the current scope. Each module implements the minimum coherent behavior. Future features (payment providers, email, queues, etc.) are deferred.
 
+### Storage abstraction
+Media files are accessed through a `MediaStorage` interface (`types.ts`). The initial implementation (`LocalMediaStorage`) stores files on the local filesystem in date-based subdirectories. Swapping to S3, GCS, or any object store requires only a new implementation of `MediaStorage` — no changes to product, review, or media service business logic.
+
 ## Deferred Architecture
 
 - **Payment provider integration**: The payment system is provider-independent. A real provider (Stripe, etc.) must be integrated.
 - **Email/SMS/Push notifications**: Only in-app notifications exist.
 - **Background workers**: No queue system exists.
-- **Multi-process support**: Rate limiter is in-memory and process-local.
+- **Multi-process support**: Rate limiter and media storage are process-local.
+- **Video transcoding**: Uploaded videos are stored as-is; no transcoding pipeline.
+- **Media serving URL**: The `getUrl()` method returns relative paths (`/media/<path>`). A static file serving endpoint (`express.static`) must be added in production.
+- **CDN integration**: No CDN layer for media delivery.
 - **Deployment**: No Hostinger VPS is provisioned yet. See `docs/deployment.md`.

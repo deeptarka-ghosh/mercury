@@ -279,8 +279,8 @@ describe('Inventory does not affect other modules', () => {
       .get('/products')
       .expect(200);
 
-    const body = res.body as Array<{ slug: string }>;
-    const slugs = body.map((p) => p.slug);
+    const body = res.body as { products: Array<{ slug: string }> };
+    const slugs = body.products.map((p) => p.slug);
     expect(slugs).toContain('test-widget');
     expect(slugs).not.toContain('draft-widget');
   });

@@ -71,10 +71,10 @@ beforeAll(async () => {
 
   // Create users
   const pwHash = await hashPassword('test-password-123');
-  await sql`INSERT INTO users (email, password_hash, created_at, updated_at)
-    VALUES ('ship-user@example.com', ${pwHash}, now(), now())`.execute(db);
-  await sql`INSERT INTO users (email, password_hash, created_at, updated_at)
-    VALUES ('ship-user2@example.com', ${pwHash}, now(), now())`.execute(db);
+  await sql`INSERT INTO users (email, password_hash, mobile_number, mobile_verified_at, created_at, updated_at)
+    VALUES ('ship-user@example.com', ${pwHash}, '+15551111111', now(), now(), now())`.execute(db);
+  await sql`INSERT INTO users (email, password_hash, mobile_number, mobile_verified_at, created_at, updated_at)
+    VALUES ('ship-user2@example.com', ${pwHash}, '+15552222222', now(), now(), now())`.execute(db);
 
   app = createApp();
 

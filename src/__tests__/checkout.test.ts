@@ -92,10 +92,10 @@ beforeAll(async () => {
 
   // Create users
   const pwHash = await hashPassword('test-password-123');
-  await sql`INSERT INTO users (email, password_hash, created_at, updated_at)
-    VALUES ('checkout-user@example.com', ${pwHash}, now(), now())`.execute(db);
-  await sql`INSERT INTO users (email, password_hash, created_at, updated_at)
-    VALUES ('checkout-user2@example.com', ${pwHash}, now(), now())`.execute(db);
+  await sql`INSERT INTO users (email, password_hash, mobile_number, mobile_verified_at, created_at, updated_at)
+    VALUES ('checkout-user@example.com', ${pwHash}, '+15551111111', now(), now(), now())`.execute(db);
+  await sql`INSERT INTO users (email, password_hash, mobile_number, mobile_verified_at, created_at, updated_at)
+    VALUES ('checkout-user2@example.com', ${pwHash}, '+15552222222', now(), now(), now())`.execute(db);
 
   app = createApp();
 
@@ -389,7 +389,8 @@ describe('Checkout does not affect other modules', () => {
       .get('/products')
       .expect(200);
 
-    expect(Array.isArray(res.body)).toBe(true);
+    expect((res.body as Record<string, unknown>)).toHaveProperty("products");
+    expect(Array.isArray((res.body as { products: unknown[] }).products)).toBe(true);
   });
 
   it('GET /health still works', async () => {

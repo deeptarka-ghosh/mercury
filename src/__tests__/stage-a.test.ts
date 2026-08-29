@@ -51,18 +51,28 @@ beforeAll(async () => {
   activeProductId = prodResult.rows[0]!.id;
   await sql`INSERT INTO prices (product_id, amount) VALUES (${activeProductId}, 9.99)`.execute(db);
 
-  // Create admin user
+  // Create admin user (with all backend roles via RBAC)
   const adminPwHash = await hashPassword('admin-password-123');
-  await sql`
-    INSERT INTO users (email, password_hash, role, created_at, updated_at)
-    VALUES ('stage-a-admin@test.com', ${adminPwHash}, 'admin', now(), now())
+  const adminResult = await sql<{ id: string }>`
+    INSERT INTO users (email, password_hash, created_at, updated_at)
+    VALUES ('stage-a-admin@test.com', ${adminPwHash}, now(), now())
+    RETURNING id
   `.execute(db);
+  const stageAdminId = adminResult.rows[0]!.id;
 
-  // Create regular user
+  const allRoles = await db.selectFrom('roles').selectAll().execute();
+  for (const role of allRoles) {
+    await sql`
+      INSERT INTO user_roles (user_id, role_id, created_at)
+      VALUES (${stageAdminId}, ${role.id}, now())
+    `.execute(db);
+  }
+
+  // Create regular user (no backend roles = customer)
   const userPwHash = await hashPassword('user-password-123');
   await sql`
-    INSERT INTO users (email, password_hash, role, created_at, updated_at)
-    VALUES ('stage-a-user@test.com', ${userPwHash}, 'user', now(), now())
+    INSERT INTO users (email, password_hash, created_at, updated_at)
+    VALUES ('stage-a-user@test.com', ${userPwHash}, now(), now())
   `.execute(db);
 
   app = createApp();
@@ -137,8 +147,8 @@ describe('Existing functionality remains intact', () => {
       .get('/products')
       .expect(200);
 
-    const body = res.body as Array<{ slug: string }>;
-    expect(body.some((p) => p.slug === 'stage-a-prod')).toBe(true);
+    const body = res.body as { products: Array<{ slug: string }> };
+    expect(body.products.some((p) => p.slug === 'stage-a-prod')).toBe(true);
   });
 
   it('wishlist add still works', async () => {

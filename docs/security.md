@@ -11,7 +11,7 @@
 | Refresh rotation | Delete old + insert new in transaction | ✅ |
 | Replay protection | Rotated tokens are invalidated; FOR UPDATE prevents races | ✅ |
 | Concurrent refresh | FOR UPDATE row lock → exactly one succeeds | ✅ |
-| Authorization | DB-authoritative role lookup (`authorize('admin')`) | ✅ |
+| Authorization | Multi-role RBAC — `backend_read`, `backend_write`, `backend_admin`, `user_management`; DB-authoritative lookup; `requireAllRoles()`, `requireAnyRole()` middleware | ✅ |
 | Ownership isolation | All queries scoped by `user_id` in WHERE clause | ✅ |
 | SQL injection | All queries parameterized via Kysely or `$N` placeholders | ✅ |
 | Database constraints | UNIQUE, CHECK, FK with ON DELETE behavior | ✅ |
@@ -24,7 +24,7 @@
 | Logging | Only method/url/status/duration — no secrets | ✅ |
 | Money safety | All PostgreSQL NUMERIC, CAST to TEXT in API, no JS floats | ✅ |
 | Admin bootstrap | Env-based, bcrypt-hashed, opt-in, not HTTP-triggerable | ✅ |
-| CORS | Not configured (no frontend yet) | ⚪️ Deferred |
+| CORS | Configurable via `CORS_ORIGINS` env var; explicit origin allowlist; no wildcard for authenticated APIs | ✅ |
 | External payment provider | None integrated | ⚪️ Deferred |
 
 ---
@@ -41,8 +41,13 @@ Key points:
 
 ## Authorization
 
-- Roles (`user` / `admin`) are stored in the database and looked up on every admin request.
-- The `authorize()` middleware rejects ordinary users with 403.
+- Backend roles (`backend_read`, `backend_write`, `backend_admin`, `user_management`) are stored in the `roles` table and assigned via `user_roles` join table.
+- Roles are looked up from the database on every request (server-authoritative, not from JWT).
+- `requireAllRoles(...)` middleware requires the user to have every listed role.
+- `requireAnyRole(...)` middleware requires at least one listed role.
+- Role changes take effect immediately without requiring a new JWT.
+- The old `users.role` column is deprecated. All authorization derives from `user_roles`.
+- Hard-deletion of products and categories is disabled server-side for all roles.
 - Ownership is enforced at the query level — another user's resource returns 404, not 403 (preventing existence leakage).
 
 ## Rate Limiting
@@ -80,7 +85,7 @@ Rate limits are applied to abuse-prone endpoints:
 
 - **Helmet**: Sets X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Strict-Transport-Security (1 year), and other security headers.
 - **Body size limit**: `express.json({ limit: '100kb' })` rejects oversized payloads with 413 Payload Too Large.
-- **No CORS**: Not configured; no frontend exists yet.
+- **CORS**: Enabled with an explicit origin allowlist from `CORS_ORIGINS` env var. Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS. Headers: Content-Type, Authorization. Credentials: false (Bearer-only auth). No wildcard origin. Preflight requests handled with 204 + 24h cache.
 
 ## Error Handling
 
@@ -118,6 +123,5 @@ This prevents accidental use of insecure defaults in production.
 | No external payment provider | Payment status changes are internal-only | Integrate Stripe or similar |
 | No email verification | `email_verified_at` column unused | Email verification flow |
 | No password reset | Users cannot recover accounts | Password reset flow |
-| No CORS | Frontend cannot call API from different origin | Configure when frontend is built |
+| OTP in-memory store | OTPs lost on process restart; 5-min expiry acceptable for single-process | Replace with shared store if multi-process |
 | No database-aware health | `/health` does not verify DB connectivity | Add readiness check if needed |
-| No audit trail for user mutations | Only admin mutations are audited | Extend audit scope if needed |
