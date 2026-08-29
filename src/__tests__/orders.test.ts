@@ -47,6 +47,10 @@ beforeAll(async () => {
   const productAId = rA.rows[0]!.id;
   await sql`INSERT INTO prices (product_id, amount) VALUES (${productAId}, 19.99)`.execute(db);
   await sql`INSERT INTO inventory (product_id, quantity) VALUES (${productAId}, 100)`.execute(db);
+  await sql`
+    INSERT INTO product_variants (product_id, sku, size, colour_name, status, selling_price, mrp, quantity, created_at, updated_at)
+    VALUES (${productAId}, 'orders-a', 'Default', 'Default', 'active', 19.99, 19.99, 100, now(), now())
+  `.execute(db);
 
   // Product B — will be archived after checkout
   const rB = await sql<{ id: string }>`
@@ -57,6 +61,10 @@ beforeAll(async () => {
   const productBId = rB.rows[0]!.id;
   await sql`INSERT INTO prices (product_id, amount) VALUES (${productBId}, 9.99)`.execute(db);
   await sql`INSERT INTO inventory (product_id, quantity) VALUES (${productBId}, 50)`.execute(db);
+  await sql`
+    INSERT INTO product_variants (product_id, sku, size, colour_name, status, selling_price, mrp, quantity, created_at, updated_at)
+    VALUES (${productBId}, 'orders-b', 'Default', 'Default', 'active', 9.99, 9.99, 50, now(), now())
+  `.execute(db);
 
   // Create users
   const pwHash = await hashPassword('test-password-123');
@@ -376,6 +384,10 @@ describe('Checkout still works with Orders module', () => {
     const freshProdId = prodResult.rows[0]!.id;
     await sql`INSERT INTO prices (product_id, amount) VALUES (${freshProdId}, 15.00)`.execute(db);
     await sql`INSERT INTO inventory (product_id, quantity) VALUES (${freshProdId}, 10)`.execute(db);
+  await sql`
+    INSERT INTO product_variants (product_id, sku, size, colour_name, status, selling_price, mrp, quantity, created_at, updated_at)
+    VALUES (${freshProdId}, 'orders-fresh', 'Default', 'Default', 'active', 15.00, 15.00, 10, now(), now())
+  `.execute(db);
 
     // Add to cart and checkout
     await supertest(app)

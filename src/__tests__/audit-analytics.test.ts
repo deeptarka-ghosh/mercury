@@ -30,6 +30,7 @@ beforeAll(async () => {
   await sql`DELETE FROM cart_items`.execute(db);
   await sql`DELETE FROM prices`.execute(db);
   await sql`DELETE FROM inventory`.execute(db);
+  await sql`DELETE FROM product_variants`.execute(db);
   await sql`DELETE FROM products`.execute(db);
   await sql`DELETE FROM categories`.execute(db);
   await sql`DELETE FROM refresh_tokens`.execute(db);
@@ -52,6 +53,11 @@ beforeAll(async () => {
   productId = prodResult.rows[0]!.id;
   productSlug = 'test-product';
   await sql`INSERT INTO prices (product_id, amount) VALUES (${productId}, 19.99)`.execute(db);
+
+  await sql`
+    INSERT INTO product_variants (product_id, sku, size, colour_name, status, selling_price, mrp, quantity, created_at, updated_at)
+    VALUES (${productId}, 'test-product-default', 'Default', 'Default', 'active', 19.99, 19.99, 100, now(), now())
+  `.execute(db);
 
   // Draft product
   await sql`
@@ -139,6 +145,7 @@ afterAll(async () => {
   await sql`DELETE FROM cart_items`.execute(db);
   await sql`DELETE FROM prices`.execute(db);
   await sql`DELETE FROM inventory`.execute(db);
+  await sql`DELETE FROM product_variants`.execute(db);
   await sql`DELETE FROM products`.execute(db);
   await sql`DELETE FROM categories`.execute(db);
   await sql`DELETE FROM refresh_tokens`.execute(db);

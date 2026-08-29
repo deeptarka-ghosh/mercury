@@ -26,12 +26,14 @@ export async function refresh(refreshToken: string): Promise<{
       expires_at: string;
       user_id: string;
       email: string;
+      user_status: string;
     }>`
       SELECT
         rt.id AS token_id,
         rt.expires_at,
         u.id AS user_id,
-        u.email
+        u.email,
+        u.status AS user_status
       FROM refresh_tokens rt
       INNER JOIN users u ON u.id = rt.user_id
       WHERE rt.token_hash = ${tokenHash}
@@ -43,6 +45,12 @@ export async function refresh(refreshToken: string): Promise<{
     }
 
     const token = row.rows[0]!;
+
+    if (token.user_status === 'disabled') {
+      // Clean up the refresh token and reject
+      await sql`DELETE FROM refresh_tokens WHERE id = ${token.token_id}`.execute(trx);
+      throw AppError.forbidden('Account is disabled');
+    }
 
     if (new Date(token.expires_at) < new Date()) {
       await sql`DELETE FROM refresh_tokens WHERE id = ${token.token_id}`.execute(trx);

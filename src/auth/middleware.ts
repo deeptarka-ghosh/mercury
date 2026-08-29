@@ -11,6 +11,7 @@ declare global {
       user?: {
         id: string;
         email: string;
+        adminVerified?: boolean;
       };
     }
   }
@@ -58,15 +59,16 @@ export async function hasAnyBackendRole(userId: string): Promise<boolean> {
  * Authenticate middleware.
  *
  * Verifies the JWT access token and attaches user identity to req.user.
+ * Also checks if the user account has been disabled.
  * Does NOT check roles — that's done by the authorization middleware.
  *
- * Returns 401 if the token is missing, invalid, or expired.
+ * Returns 401 if the token is missing, invalid, expired, or user is disabled.
  */
-export function authenticate(
+export async function authenticate(
   req: Request,
   _res: Response,
   next: NextFunction,
-): void {
+): Promise<void> {
   try {
     const authHeader = req.headers.authorization;
 
@@ -84,11 +86,28 @@ export function authenticate(
       throw AppError.unauthorized('Invalid authorization header');
     }
 
-    const payload = verifyToken(token, 'access') as { sub: string; email: string; type: 'access' };
+    const payload = verifyToken(token, 'access') as { sub: string; email: string; type: 'access'; adminVerified?: boolean };
+
+    // Check if user is disabled
+    const db = getDatabase();
+    const user = await db
+      .selectFrom('users')
+      .select(['id', 'status'])
+      .where('id', '=', payload.sub)
+      .executeTakeFirst();
+
+    if (!user) {
+      throw AppError.unauthorized('User not found');
+    }
+
+    if (user.status === 'disabled') {
+      throw AppError.forbidden('Account is disabled');
+    }
 
     req.user = {
       id: payload.sub,
       email: payload.email,
+      adminVerified: payload.adminVerified ?? false,
     };
 
     next();
@@ -166,6 +185,28 @@ export function requireAnyRole(...requiredRoles: string[]) {
       next(error);
     }
   };
+}
+
+/**
+ * Require the access token to have been issued through the admin 2FA flow.
+ * Customer tokens (without admin_verified) are rejected.
+ */
+export function requireAdminVerification(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): void {
+  if (!req.user) {
+    next(AppError.unauthorized('Authentication required'));
+    return;
+  }
+
+  if (!req.user.adminVerified) {
+    next(AppError.forbidden('Admin two-factor authentication required'));
+    return;
+  }
+
+  next();
 }
 
 /**

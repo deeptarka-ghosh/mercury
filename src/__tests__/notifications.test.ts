@@ -49,6 +49,11 @@ beforeAll(async () => {
   await sql`INSERT INTO prices (product_id, amount) VALUES (${productId}, 15.00)`.execute(db);
   await sql`INSERT INTO inventory (product_id, quantity) VALUES (${productId}, 100)`.execute(db);
 
+  await sql`
+    INSERT INTO product_variants (product_id, sku, size, colour_name, status, selling_price, mrp, quantity, created_at, updated_at)
+    VALUES (${productId}, 'notify-var', 'Default', 'Default', 'active', 15.00, 15.00, 100, now(), now())
+  `.execute(db);
+
   // Create users
   const pwHash = await hashPassword('test-password-123');
   await sql`INSERT INTO users (email, password_hash, mobile_number, mobile_verified_at, created_at, updated_at)

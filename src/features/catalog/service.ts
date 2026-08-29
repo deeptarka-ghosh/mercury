@@ -31,6 +31,22 @@ export interface ProductResponse {
   updatedAt: string;
 }
 
+export interface VariantPublicResponse {
+  id: string;
+  sku: string;
+  size: string;
+  colourName: string;
+  colourCode: string | null;
+  sellingPrice: string;
+  mrp: string;
+  quantity: number;
+  lowStockThreshold: number | null;
+}
+
+export interface ProductDetailResponse extends ProductResponse {
+  variants: VariantPublicResponse[];
+}
+
 export interface ProductListResponse {
   products: ProductResponse[];
   total: number;
@@ -132,11 +148,46 @@ export async function listProducts(filters: ProductSearchFilters = {}): Promise<
   return { products: rows.map(mapProduct), total: countResult.total, limit, offset };
 }
 
-export async function getProductBySlug(slug: string): Promise<ProductResponse> {
+/**
+ * Get full product detail for public catalog, including active variants.
+ */
+export async function getProductBySlug(slug: string): Promise<ProductDetailResponse> {
   const db = getDatabase();
   const row = await db.selectFrom('products').leftJoin('categories', 'categories.id', 'products.category_id').leftJoin('prices', 'prices.product_id', 'products.id').select(['products.id', 'products.name', 'products.slug', 'products.description', 'products.status', 'products.category_id', 'categories.name as category_name', sql<string | null>`CAST(prices.amount AS TEXT)`.as('price'), 'products.created_at', 'products.updated_at']).where('products.slug', '=', slug).where('products.status', '=', 'active').executeTakeFirst();
   if (!row) throw AppError.notFound('Product not found');
-  return mapProduct(row);
+
+  const variants = await db
+    .selectFrom('product_variants')
+    .select([
+      'product_variants.id',
+      'product_variants.sku',
+      'product_variants.size',
+      'product_variants.colour_name',
+      'product_variants.colour_code',
+      sql<string>`CAST(product_variants.selling_price AS TEXT)`.as('selling_price'),
+      sql<string>`CAST(product_variants.mrp AS TEXT)`.as('mrp'),
+      'product_variants.quantity',
+      'product_variants.low_stock_threshold',
+    ])
+    .where('product_variants.product_id', '=', row.id)
+    .where('product_variants.status', '=', 'active')
+    .orderBy('product_variants.created_at')
+    .execute();
+
+  return {
+    ...mapProduct(row),
+    variants: variants.map((v) => ({
+      id: v.id,
+      sku: v.sku,
+      size: v.size,
+      colourName: v.colour_name,
+      colourCode: v.colour_code,
+      sellingPrice: v.selling_price,
+      mrp: v.mrp,
+      quantity: v.quantity,
+      lowStockThreshold: v.low_stock_threshold,
+    })),
+  };
 }
 
 /**

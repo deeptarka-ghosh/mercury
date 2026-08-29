@@ -41,6 +41,7 @@ beforeAll(async () => {
   await sql`DELETE FROM cart_items`.execute(db);
   await sql`DELETE FROM prices`.execute(db);
   await sql`DELETE FROM inventory`.execute(db);
+  await sql`DELETE FROM product_variants`.execute(db);
   await sql`DELETE FROM products`.execute(db);
   await sql`DELETE FROM categories`.execute(db);
   await sql`DELETE FROM refresh_tokens`.execute(db);
@@ -60,12 +61,22 @@ beforeAll(async () => {
   await sql`INSERT INTO prices (product_id, amount) VALUES (${p1.rows[0]!.id}, 10.00)`.execute(db);
   await sql`INSERT INTO inventory (product_id, quantity) VALUES (${p1.rows[0]!.id}, 5)`.execute(db);
 
+  await sql`
+    INSERT INTO product_variants (product_id, sku, size, colour_name, status, selling_price, mrp, quantity, created_at, updated_at)
+    VALUES (${p1.rows[0]!.id}, 'alpha-var', 'Default', 'Default', 'active', 10.00, 10.00, 5, now(), now())
+  `.execute(db);
+
   const p2 = await sql<{ id: string }>`
     INSERT INTO products (name, slug, description, status, category_id, created_at, updated_at)
     VALUES ('Beta Product', 'beta', 'Second product B', 'active', ${catId}, now(), now()) RETURNING id
   `.execute(db);
   await sql`INSERT INTO prices (product_id, amount) VALUES (${p2.rows[0]!.id}, 20.00)`.execute(db);
   await sql`INSERT INTO inventory (product_id, quantity) VALUES (${p2.rows[0]!.id}, 0)`.execute(db);
+
+  await sql`
+    INSERT INTO product_variants (product_id, sku, size, colour_name, status, selling_price, mrp, quantity, created_at, updated_at)
+    VALUES (${p2.rows[0]!.id}, 'beta-var', 'Default', 'Default', 'active', 20.00, 20.00, 0, now(), now())
+  `.execute(db);
 
   const p3 = await sql<{ id: string }>`
     INSERT INTO products (name, slug, description, status, category_id, created_at, updated_at)
@@ -111,6 +122,7 @@ afterAll(async () => {
   await sql`DELETE FROM cart_items`.execute(db);
   await sql`DELETE FROM prices`.execute(db);
   await sql`DELETE FROM inventory`.execute(db);
+  await sql`DELETE FROM product_variants`.execute(db);
   await sql`DELETE FROM products`.execute(db);
   await sql`DELETE FROM categories`.execute(db);
   await sql`DELETE FROM refresh_tokens`.execute(db);

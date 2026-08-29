@@ -98,12 +98,16 @@ export async function login(input: LoginInput): Promise<AuthResult> {
   const db = getDatabase();
   const user = await db
     .selectFrom('users')
-    .select(['id', 'email', 'password_hash'])
+    .select(['id', 'email', 'password_hash', 'status'])
     .where('email', '=', input.email)
     .executeTakeFirst();
 
   if (!user) {
     throw AppError.unauthorized('Invalid email or password');
+  }
+
+  if (user.status === 'disabled') {
+    throw AppError.forbidden('Account is disabled');
   }
 
   const passwordValid = await verifyPassword(input.password, user.password_hash);

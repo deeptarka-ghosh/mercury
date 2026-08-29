@@ -7,6 +7,7 @@ export interface UsersTable {
   email_verified_at: string | null;
   mobile_number: string | null;
   mobile_verified_at: string | null;
+  status: Generated<string>;
   created_at: string;
   updated_at: string;
 }
@@ -71,11 +72,55 @@ export interface PricesTable {
   updated_at?: Generated<string>;
 }
 
+export interface ProductVariantsTable {
+  id: Generated<string>;
+  product_id: string;
+  sku: string;
+  barcode: string | null;
+  size: string;
+  colour_name: string;
+  colour_code: string | null;
+  status: string;
+  selling_price: string;
+  mrp: string;
+  cost_price: string | null;
+  quantity: number;
+  low_stock_threshold: number | null;
+  hsn_code: string | null;
+  tax_rate: string | null;
+  created_at: string;
+  updated_at?: Generated<string>;
+}
+
 export interface CartItemsTable {
   id: Generated<string>;
   user_id: string;
   product_id: string;
+  variant_id: string | null;
   quantity: number;
+  created_at: string;
+  updated_at?: Generated<string>;
+}
+
+export interface OrderStatusHistoryTable {
+  id: Generated<string>;
+  order_id: string;
+  from_status: string | null;
+  to_status: string;
+  changed_by: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface OrderRefundsTable {
+  id: Generated<string>;
+  order_id: string;
+  amount: string;
+  currency: string;
+  reason: string | null;
+  status: string;
+  provider_ref: string | null;
+  processed_by: string | null;
   created_at: string;
   updated_at?: Generated<string>;
 }
@@ -85,6 +130,7 @@ export interface OrdersTable {
   user_id: string;
   status: string;
   total: string | null;
+  cancelled_at: string | null;
   created_at: string;
   updated_at?: Generated<string>;
 }
@@ -97,6 +143,8 @@ export interface PaymentsTable {
   status: string;
   provider: string | null;
   provider_ref: string | null;
+  payment_method: string | null;
+  reconciliation_status: string | null;
   created_at: string;
   updated_at?: Generated<string>;
 }
@@ -113,6 +161,9 @@ export interface OrderShippingTable {
   postal_code: string;
   country_code: string;
   phone: string | null;
+  tracking_provider: string | null;
+  tracking_number: string | null;
+  tracking_url: string | null;
   created_at: string;
   updated_at?: Generated<string>;
 }
@@ -132,10 +183,17 @@ export interface OrderItemsTable {
   id: Generated<string>;
   order_id: string;
   product_id: string;
+  variant_id: string | null;
   product_name: string;
+  variant_sku: string | null;
+  variant_size: string | null;
+  variant_colour: string | null;
   quantity: number;
   unit_price: string | null;
   line_total: string | null;
+  hsn_code: string | null;
+  tax_rate: string | null;
+  tax_amount: string | null;
   created_at: string;
 }
 
@@ -153,6 +211,7 @@ export interface WishlistItemsTable {
   id: Generated<string>;
   user_id: string;
   product_id: string;
+  variant_id: string | null;
   created_at: string;
 }
 
@@ -210,18 +269,79 @@ export interface UserIdentitiesTable {
   created_at: Generated<string>;
 }
 
+export interface AdminLoginChallengesTable {
+  id: Generated<string>;
+  user_id: string;
+  otp_hash: string;
+  masked_mobile: string;
+  attempts: number;
+  max_attempts: number;
+  expires_at: string;
+  verified_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+}
+
+export interface StoreSettingsTable {
+  id: Generated<string>;
+  store_name: string;
+  default_currency: string;
+  country_code: string;
+  timezone: string;
+  locale: string;
+  gstin: string | null;
+  legal_business_name: string | null;
+  business_address: string | null;
+  support_email: string | null;
+  support_mobile: string | null;
+  created_at: string;
+  updated_at?: Generated<string>;
+}
+
+export interface ReturnRequestsTable {
+  id: Generated<string>;
+  order_id: string;
+  user_id: string;
+  status: string;
+  reason: string | null;
+  created_at: string;
+  updated_at?: Generated<string>;
+}
+
+export interface ReturnLineItemsTable {
+  id: Generated<string>;
+  return_request_id: string;
+  order_item_id: string;
+  quantity: number;
+  return_reason: string | null;
+  is_restockable: boolean;
+  created_at: string;
+}
+
+export interface ExchangeRequestsTable {
+  id: Generated<string>;
+  return_request_id: string;
+  replacement_variant_id: string | null;
+  status: string;
+  created_at: string;
+  updated_at?: Generated<string>;
+}
+
 export interface DB {
   users: UsersTable;
   refresh_tokens: RefreshTokensTable;
   profiles: ProfilesTable;
   categories: CategoriesTable;
   products: ProductsTable;
+  product_variants: ProductVariantsTable;
   inventory: InventoryTable;
   prices: PricesTable;
   cart_items: CartItemsTable;
   orders: OrdersTable;
   payments: PaymentsTable;
   order_shipping: OrderShippingTable;
+  order_status_history: OrderStatusHistoryTable;
+  order_refunds: OrderRefundsTable;
   notifications: NotificationsTable;
   order_items: OrderItemsTable;
   reviews: ReviewsTable;
@@ -232,4 +352,9 @@ export interface DB {
   roles: RolesTable;
   user_roles: UserRolesTable;
   user_identities: UserIdentitiesTable;
+  admin_login_challenges: AdminLoginChallengesTable;
+  store_settings: StoreSettingsTable;
+  return_requests: ReturnRequestsTable;
+  return_line_items: ReturnLineItemsTable;
+  exchange_requests: ExchangeRequestsTable;
 }

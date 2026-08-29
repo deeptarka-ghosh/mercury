@@ -29,7 +29,7 @@ router.get('/cart', authenticate, async (req, res, next) => {
 router.post('/cart', authenticate, async (req, res, next) => {
   try {
     const userId = req.user!.id;
-    const { productId, quantity } = req.body as { productId?: unknown; quantity?: unknown };
+    const { productId, variantId, quantity } = req.body as { productId?: unknown; variantId?: unknown; quantity?: unknown };
 
     if (!productId || typeof productId !== 'string') {
       res.status(400).json({
@@ -45,7 +45,7 @@ router.post('/cart', authenticate, async (req, res, next) => {
       return;
     }
 
-    const result = await addToCart(userId, productId, quantity);
+    const result = await addToCart(userId, productId, quantity, variantId as string | undefined);
     res.json(result);
   } catch (err) {
     next(err);

@@ -30,6 +30,7 @@ beforeAll(async () => {
   await sql`DELETE FROM cart_items`.execute(db);
   await sql`DELETE FROM prices`.execute(db);
   await sql`DELETE FROM inventory`.execute(db);
+  await sql`DELETE FROM product_variants`.execute(db);
   await sql`DELETE FROM products`.execute(db);
   await sql`DELETE FROM categories`.execute(db);
   await sql`DELETE FROM refresh_tokens`.execute(db);
@@ -53,6 +54,11 @@ beforeAll(async () => {
   await sql`INSERT INTO prices (product_id, amount) VALUES (${pricedProductId}, 29.99)`.execute(db);
   await sql`INSERT INTO inventory (product_id, quantity) VALUES (${pricedProductId}, 50)`.execute(db);
 
+  await sql`
+    INSERT INTO product_variants (product_id, sku, size, colour_name, status, selling_price, mrp, quantity, created_at, updated_at)
+    VALUES (${pricedProductId}, 'widget-alpha-default', 'Default', 'Default', 'active', 29.99, 29.99, 50, now(), now())
+  `.execute(db);
+
   // Unpriced active product with stock
   const r2 = await sql<{ id: string }>`
     INSERT INTO products (name, slug, description, status, category_id, created_at, updated_at)
@@ -61,6 +67,11 @@ beforeAll(async () => {
   `.execute(db);
   unpricedProductId = r2.rows[0]!.id;
   await sql`INSERT INTO inventory (product_id, quantity) VALUES (${unpricedProductId}, 10)`.execute(db);
+
+  await sql`
+    INSERT INTO product_variants (product_id, sku, size, colour_name, status, selling_price, mrp, quantity, created_at, updated_at)
+    VALUES (${unpricedProductId}, 'widget-beta-default', 'Default', 'Default', 'active', 0, 0, 10, now(), now())
+  `.execute(db);
 
   // Product with limited stock (1 unit)
   const r3 = await sql<{ id: string }>`
@@ -72,6 +83,11 @@ beforeAll(async () => {
   await sql`INSERT INTO prices (product_id, amount) VALUES (${limitedStockProductId}, 9.99)`.execute(db);
   await sql`INSERT INTO inventory (product_id, quantity) VALUES (${limitedStockProductId}, 5)`.execute(db);
 
+  await sql`
+    INSERT INTO product_variants (product_id, sku, size, colour_name, status, selling_price, mrp, quantity, created_at, updated_at)
+    VALUES (${limitedStockProductId}, 'widget-gamma-default', 'Default', 'Default', 'active', 9.99, 9.99, 5, now(), now())
+  `.execute(db);
+
   // Active product with NO inventory row — should be treated as out of stock
   const r4 = await sql<{ id: string }>`
     INSERT INTO products (name, slug, description, status, category_id, created_at, updated_at)
@@ -80,7 +96,7 @@ beforeAll(async () => {
   `.execute(db);
   noInventoryProductId = r4.rows[0]!.id;
   await sql`INSERT INTO prices (product_id, amount) VALUES (${noInventoryProductId}, 14.99)`.execute(db);
-  // Deliberately no inventory row
+  // Deliberately no variant row — virtual fallback handles this
 
   // Draft product
   const r5 = await sql<{ id: string }>`
@@ -122,6 +138,7 @@ afterAll(async () => {
   await sql`DELETE FROM cart_items`.execute(db);
   await sql`DELETE FROM prices`.execute(db);
   await sql`DELETE FROM inventory`.execute(db);
+  await sql`DELETE FROM product_variants`.execute(db);
   await sql`DELETE FROM products`.execute(db);
   await sql`DELETE FROM categories`.execute(db);
   await sql`DELETE FROM refresh_tokens`.execute(db);
@@ -221,7 +238,7 @@ describe('POST /checkout', () => {
 
     // No inventory row was created as a side effect
     const invCheck = await sql<{ count: number }>`
-      SELECT COUNT(*)::int AS count FROM inventory WHERE product_id = ${noInventoryProductId}
+      SELECT COUNT(*)::int AS count FROM product_variants WHERE product_id = ${noInventoryProductId}
     `.execute(db);
     expect(invCheck.rows[0]!.count).toBe(0);
 
@@ -234,7 +251,7 @@ describe('POST /checkout', () => {
     await addToCart(userToken, noInventoryProductId, 1);
 
     const preCheckoutStock = await sql<{ quantity: number }>`
-      SELECT quantity FROM inventory WHERE product_id = ${pricedProductId}
+      SELECT quantity FROM product_variants WHERE product_id = ${pricedProductId}
     `.execute(await import('../db/database.js').then((m) => m.getDatabase()));
     const beforeQty = preCheckoutStock.rows[0]!.quantity;
 
@@ -248,7 +265,7 @@ describe('POST /checkout', () => {
 
     // Inventory of the valid product must NOT have been decremented (rollback)
     const postCheckoutStock = await sql<{ quantity: number }>`
-      SELECT quantity FROM inventory WHERE product_id = ${pricedProductId}
+      SELECT quantity FROM product_variants WHERE product_id = ${pricedProductId}
     `.execute(await import('../db/database.js').then((m) => m.getDatabase()));
     expect(postCheckoutStock.rows[0]!.quantity).toBe(beforeQty);
 
@@ -287,7 +304,7 @@ describe('POST /checkout', () => {
 
     // Inventory was decremented
     const invResult = await sql<{ quantity: number }>`
-      SELECT quantity FROM inventory WHERE product_id = ${pricedProductId}
+      SELECT quantity FROM product_variants WHERE product_id = ${pricedProductId}
     `.execute(await import('../db/database.js').then((m) => m.getDatabase()));
     expect(invResult.rows[0]!.quantity).toBe(48); // 50 - 2
   });
@@ -322,12 +339,12 @@ describe('POST /checkout', () => {
 
     const unpricedItem = items.find((i) => i.product_name === 'Widget Beta')!;
     expect(unpricedItem.quantity).toBe(3);
-    expect(unpricedItem.unit_price).toBeNull();
-    expect(unpricedItem.line_total).toBeNull();
+    expect(unpricedItem.unit_price).toBe('0.00');
+    expect(unpricedItem.line_total).toBe('0.00');
 
     // Inventory decremented for both
     const invResult = await sql<{ quantity: number }>`
-      SELECT quantity FROM inventory WHERE product_id = ${pricedProductId}
+      SELECT quantity FROM product_variants WHERE product_id = ${pricedProductId}
     `.execute(db);
     expect(invResult.rows[0]!.quantity).toBe(47);
   });
@@ -339,7 +356,7 @@ describe('Checkout concurrency', () => {
 
     // Restock to exactly 2 units
     await sql`
-      UPDATE inventory SET quantity = 2, updated_at = now()
+      UPDATE product_variants SET quantity = 2, updated_at = now()
       WHERE product_id = ${limitedStockProductId}
     `.execute(db);
     await sql`DELETE FROM cart_items`.execute(db);
@@ -374,7 +391,7 @@ describe('Checkout concurrency', () => {
 
     // Inventory should be 0 (2 - 2 = 0)
     const invResult = await sql<{ quantity: number }>`
-      SELECT quantity FROM inventory WHERE product_id = ${limitedStockProductId}
+      SELECT quantity FROM product_variants WHERE product_id = ${limitedStockProductId}
     `.execute(db);
     expect(invResult.rows[0]!.quantity).toBe(0);
 

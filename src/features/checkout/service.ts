@@ -14,10 +14,10 @@ export interface CheckoutResponse {
  *
  * Single atomic transaction:
  * 1. Lock cart items (FOR UPDATE)
- * 2. Lock existing inventory rows for cart products (FOR UPDATE)
- * 3. Validate cart not empty, products active, sufficient stock
- * 4. INSERT order + order_items (snapshot with current prices)
- * 5. Decrement inventory atomically with conditional WHERE guard
+ * 2. Lock variant rows for cart items (FOR UPDATE)
+ * 3. Validate cart not empty, products active, variants active with sufficient stock
+ * 4. INSERT order + order_items (snapshot with variant prices, sku, size, colour)
+ * 5. Decrement variant inventory atomically with conditional WHERE guard
  * 6. Clear cart, return order summary
  */
 export async function checkout(userId: string): Promise<CheckoutResponse> {
@@ -37,10 +37,11 @@ export async function checkout(userId: string): Promise<CheckoutResponse> {
         { statusCode: 403, code: 'MOBILE_VERIFICATION_REQUIRED' },
       );
     }
+
     // Step 1: Lock the user's cart items
     const cartLock = await trx
       .selectFrom('cart_items')
-      .select(['cart_items.product_id', 'cart_items.quantity'])
+      .select(['cart_items.product_id', 'cart_items.variant_id', 'cart_items.quantity'])
       .where('cart_items.user_id', '=', userId)
       .forUpdate()
       .execute();
@@ -49,31 +50,37 @@ export async function checkout(userId: string): Promise<CheckoutResponse> {
       throw AppError.badRequest('Cart is empty');
     }
 
-    const productIds = cartLock.map((c) => c.product_id);
+    const variantIds = cartLock
+      .map((c) => c.variant_id)
+      .filter((v): v is string => v !== null);
 
-    // Step 2: Lock inventory rows for these products (existing rows only)
-    const existingInventory = await trx
-      .selectFrom('inventory')
-      .select('inventory.product_id')
-      .where('inventory.product_id', 'in', productIds)
-      .forUpdate()
-      .execute();
+    // Step 2: Lock variant rows for these cart items
+    if (variantIds.length > 0) {
+      await trx
+        .selectFrom('product_variants')
+        .select(['id'])
+        .where('id', 'in', variantIds)
+        .forUpdate()
+        .execute();
+    }
 
-    const inventoriedIds = new Set(existingInventory.map((i) => i.product_id));
-
-    // Step 3: Read full cart data with LEFT JOINs (no FOR UPDATE — already locked)
+    // Step 3: Read full cart data with variant joins
     const cartItems = await trx
       .selectFrom('cart_items')
       .innerJoin('products', 'products.id', 'cart_items.product_id')
-      .leftJoin('prices', 'prices.product_id', 'cart_items.product_id')
-      .leftJoin('inventory', 'inventory.product_id', 'cart_items.product_id')
+      .leftJoin('product_variants', 'product_variants.id', 'cart_items.variant_id')
       .select([
         'cart_items.product_id',
+        'cart_items.variant_id',
         'cart_items.quantity',
         'products.name',
         'products.status',
-        sql<string | null>`CAST(prices.amount AS TEXT)`.as('unit_price'),
-        sql<number | null>`inventory.quantity`.as('stock_quantity'),
+        'product_variants.sku as variant_sku',
+        'product_variants.size as variant_size',
+        'product_variants.colour_name as variant_colour',
+        sql<string | null>`CAST(product_variants.selling_price AS TEXT)`.as('selling_price'),
+        sql<number | null>`product_variants.quantity`.as('stock_quantity'),
+        'product_variants.status as variant_status',
       ])
       .where('cart_items.user_id', '=', userId)
       .execute();
@@ -86,13 +93,18 @@ export async function checkout(userId: string): Promise<CheckoutResponse> {
         );
       }
 
-      // Missing inventory row = quantity 0, consistent with Inventory module
+      if (item.variant_status && item.variant_status !== 'active') {
+        throw AppError.badRequest(
+          `Variant "${item.name}" (${item.variant_sku ?? ''}) is no longer available`,
+        );
+      }
+
       const available = item.stock_quantity ?? 0;
       if (available < item.quantity) {
-        const msg =
-          item.stock_quantity === null
-            ? `Product "${item.name}" is out of stock`
-            : `Insufficient stock for "${item.name}". Available: ${item.stock_quantity}, requested: ${item.quantity}`;
+        const variantLabel = item.variant_sku ? ` (${item.variant_sku})` : '';
+        const msg = available === 0
+          ? `Product "${item.name}" is out of stock`
+          : `Insufficient stock for "${item.name}"${variantLabel}. Available: ${item.stock_quantity}, requested: ${item.quantity}`;
         throw AppError.conflict(msg);
       }
     }
@@ -106,35 +118,39 @@ export async function checkout(userId: string): Promise<CheckoutResponse> {
 
     const orderId = orderInsert.rows[0]!.id;
 
-    // Step 6: Insert order_items — snapshot cart with current prices
+    // Step 6: Insert order_items — snapshot cart with variant data
     await sql`
-      INSERT INTO order_items (order_id, product_id, product_name, quantity, unit_price, line_total)
+      INSERT INTO order_items (order_id, product_id, variant_id, product_name, variant_sku, variant_size, variant_colour, quantity, unit_price, line_total)
       SELECT
         ${orderId}::UUID,
         ci.product_id,
+        ci.variant_id,
         p.name,
+        pv.sku,
+        pv.size,
+        pv.colour_name,
         ci.quantity,
-        pr.amount,
-        CASE WHEN pr.amount IS NOT NULL THEN ci.quantity * pr.amount ELSE NULL END
+        pv.selling_price,
+        CASE WHEN pv.selling_price IS NOT NULL THEN ci.quantity * pv.selling_price ELSE NULL END
       FROM cart_items ci
       JOIN products p ON p.id = ci.product_id
-      LEFT JOIN prices pr ON pr.product_id = ci.product_id
+      LEFT JOIN product_variants pv ON pv.id = ci.variant_id
       WHERE ci.user_id = ${userId}
     `.execute(trx);
 
-    // Step 7: Decrement inventory for tracked products — conditional guard
+    // Step 7: Decrement variant inventory — conditional guard
     for (const item of cartItems) {
-      if (inventoriedIds.has(item.product_id) && item.stock_quantity !== null) {
+      if (item.variant_id && item.stock_quantity !== null) {
         const updateResult = await sql`
-          UPDATE inventory
+          UPDATE product_variants
           SET quantity = quantity - ${item.quantity}, updated_at = now()
-          WHERE product_id = ${item.product_id}
+          WHERE id = ${item.variant_id}
             AND quantity >= ${item.quantity}
         `.execute(trx);
 
         if (updateResult.numAffectedRows !== 1n) {
           throw AppError.conflict(
-            `Insufficient stock for "${item.name}" during checkout`,
+            `Insufficient stock for "${item.name}" (${item.variant_sku ?? ''}) during checkout`,
           );
         }
       }

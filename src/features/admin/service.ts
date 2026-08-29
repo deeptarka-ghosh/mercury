@@ -315,6 +315,18 @@ export async function setProductStatus(id: string, status: string) {
   }
 
   const db = getDatabase();
+
+  // When activating, verify the product has at least one active, purchasable variant
+  if (status === 'active') {
+    const { hasActivePurchasableVariant } = await import('../variants/service.js');
+    const canActivate = await hasActivePurchasableVariant(id);
+    if (!canActivate) {
+      throw AppError.badRequest(
+        'Cannot activate a product without at least one active variant with a valid selling price',
+      );
+    }
+  }
+
   const result = await sql`
     UPDATE products SET status = ${status}, updated_at = now()
     WHERE id = ${id}

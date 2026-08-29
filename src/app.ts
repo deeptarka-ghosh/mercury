@@ -19,6 +19,7 @@ import notificationsRouter from './features/notifications/routes.js';
 import reviewsRouter from './features/reviews/routes.js';
 import wishlistRouter from './features/wishlist/routes.js';
 import adminRouter from './features/admin/routes.js';
+import adminAuthRouter from './features/admin/authRoutes.js';
 import mediaRouter from './features/media/routes.js';
 
 export function createApp(): express.Application {
@@ -66,6 +67,7 @@ export function createApp(): express.Application {
   app.use(reviewsRouter);
   app.use(wishlistRouter);
   app.use(adminRouter);
+  app.use(adminAuthRouter);
   app.use(mediaRouter);
 
   app.use((_req, res) => {

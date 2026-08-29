@@ -43,6 +43,7 @@ beforeAll(async () => {
   await sql`DELETE FROM cart_items`.execute(db);
   await sql`DELETE FROM prices`.execute(db);
   await sql`DELETE FROM inventory`.execute(db);
+  await sql`DELETE FROM product_variants`.execute(db);
   await sql`DELETE FROM products`.execute(db);
   await sql`DELETE FROM categories`.execute(db);
   await sql`DELETE FROM refresh_tokens`.execute(db);
@@ -64,6 +65,12 @@ beforeAll(async () => {
   `.execute(db);
   productId = prodResult.rows[0]!.id;
   await sql`INSERT INTO prices (product_id, amount) VALUES (${productId}, 19.99)`.execute(db);
+
+  // Create a default variant for the test product (required for activation)
+  await sql`
+    INSERT INTO product_variants (product_id, sku, size, colour_name, status, selling_price, mrp, quantity, created_at, updated_at)
+    VALUES (${productId}, 'test-product-default', 'Default', 'Default', 'active', 19.99, 19.99, 100, now(), now())
+  `.execute(db);
 
   // Draft product for status filter testing
   await sql`
@@ -164,12 +171,86 @@ afterAll(async () => {
   await sql`DELETE FROM cart_items`.execute(db);
   await sql`DELETE FROM prices`.execute(db);
   await sql`DELETE FROM inventory`.execute(db);
+  await sql`DELETE FROM product_variants`.execute(db);
   await sql`DELETE FROM products`.execute(db);
   await sql`DELETE FROM categories`.execute(db);
   await sql`DELETE FROM refresh_tokens`.execute(db);
   await sql`DELETE FROM users`.execute(db);
   await destroyDatabase();
   await destroyPool();
+});
+
+describe('GET /admin/me', () => {
+  it('returns 401 without authentication', async () => {
+    const res = await supertest(app)
+      .get('/admin/me')
+      .expect(401);
+
+    expect(res.body).toEqual({
+      error: { code: 'UNAUTHORIZED', message: 'Authentication required' },
+    });
+  });
+
+  it('returns 401 with an invalid token', async () => {
+    const res = await supertest(app)
+      .get('/admin/me')
+      .set('Authorization', 'Bearer invalid-token')
+      .expect(401);
+
+    expect(res.body).toEqual({
+      error: { code: 'UNAUTHORIZED', message: 'Invalid token' },
+    });
+  });
+
+  it('returns 403 for a customer with no backend roles', async () => {
+    await supertest(app)
+      .get('/admin/me')
+      .set('Authorization', `Bearer ${userToken}`)
+      .expect(403);
+  });
+
+  it('returns identity + roles for a user with backend_read', async () => {
+    const res = await supertest(app)
+      .get('/admin/me')
+      .set('Authorization', `Bearer ${backendReadToken}`)
+      .expect(200);
+
+    const body = res.body as {
+      id: string;
+      email: string;
+      mobileNumber: string | null;
+      mobileVerified: boolean;
+      roles: string[];
+    };
+    expect(body).toHaveProperty('id');
+    expect(body.email).toBe('backendread@test.com');
+    expect(body.roles).toContain('backend_read');
+    expect(body.mobileNumber).toBeNull();
+    expect(body.mobileVerified).toBe(false);
+  });
+
+  it('returns identity + all roles for full admin', async () => {
+    const res = await supertest(app)
+      .get('/admin/me')
+      .set('Authorization', `Bearer ${fullAdminToken}`)
+      .expect(200);
+
+    const body = res.body as { roles: string[] };
+    expect(body.roles).toContain('backend_read');
+    expect(body.roles).toContain('backend_write');
+    expect(body.roles).toContain('backend_admin');
+    expect(body.roles).toContain('user_management');
+  });
+
+  it('returns roles for backend_write user', async () => {
+    const res = await supertest(app)
+      .get('/admin/me')
+      .set('Authorization', `Bearer ${backendWriteToken}`)
+      .expect(200);
+
+    const body = res.body as { roles: string[] };
+    expect(body.roles).toContain('backend_write');
+  });
 });
 
 describe('RBAC — Customer (no backend roles)', () => {

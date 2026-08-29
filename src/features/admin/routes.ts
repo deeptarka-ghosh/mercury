@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate, requireAnyRole, requireAllRoles, isBackendRole } from '../../auth/middleware.js';
+import { authenticate, requireAnyRole, requireAllRoles, isBackendRole, getUserRoles } from '../../auth/middleware.js';
 import { getDatabase } from '../../db/database.js';
 import { AppError } from '../../errors/AppError.js';
 import { sql } from 'kysely';
@@ -7,6 +7,39 @@ import { recordAudit } from './service.js';
 import { setInventory } from '../inventory/service.js';
 import { setPrice } from '../pricing/service.js';
 import { hashPassword } from '../../auth/password.js';
+import {
+  listVariants,
+  getVariant,
+  createVariant,
+  updateVariant,
+  setVariantStatus,
+  setVariantInventory,
+  setVariantPricing,
+} from '../variants/service.js';
+import {
+  listAdminOrders,
+  getAdminOrder,
+  updateOrderStatus,
+  cancelOrder,
+  createRefund,
+  updateShippingStatus,
+} from './orderService.js';
+import {
+  listCustomers,
+  getCustomerDetail,
+  updateCustomerStatus,
+  listCustomerOrders,
+} from './customerService.js';
+import {
+  getStoreSettings,
+  updateStoreSettings,
+} from './settingsService.js';
+import {
+  listReturns,
+  getReturnDetail,
+  updateReturnStatus,
+  updateShipmentTracking,
+} from './returnsService.js';
 import {
   listAllCategories,
   getCategoryById,
@@ -260,6 +293,203 @@ router.patch('/admin/products/:id/status', async (req, res, next) => {
 // NOTE: Product hard-delete endpoint is intentionally removed.
 // Use status changes (draft/active/archived) rather than destructive deletion.
 
+// ===================== Product Variants — Read (backend_read or higher) =====================
+
+/**
+ * GET /admin/products/:productId/variants
+ * List all variants for a product.
+ */
+router.get('/admin/products/:productId/variants', async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string, 10) || 50, 1), 200);
+    const offset = Math.max(parseInt(req.query.offset as string, 10) || 0, 0);
+    const result = await listVariants(req.params.productId, limit, offset);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /admin/products/:productId/variants/:variantId
+ * Get a single variant.
+ */
+router.get('/admin/products/:productId/variants/:variantId', async (req, res, next) => {
+  try {
+    const result = await getVariant(req.params.productId, req.params.variantId);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ===================== Product Variants — Write (backend_write or higher) =====================
+
+/**
+ * POST /admin/products/:productId/variants
+ * Create a new variant.
+ */
+router.post('/admin/products/:productId/variants', async (req, res, next) => {
+  try {
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
+    const body = req.body as {
+      sku?: unknown; barcode?: unknown; size?: unknown; colourName?: unknown;
+      colourCode?: unknown; sellingPrice?: unknown; mrp?: unknown;
+      costPrice?: unknown; quantity?: unknown; lowStockThreshold?: unknown; status?: unknown;
+    };
+
+    const result = await createVariant(req.params.productId, {
+      sku: body.sku as string,
+      barcode: body.barcode === undefined ? null : (body.barcode as string | null),
+      size: body.size as string,
+      colourName: body.colourName as string,
+      colourCode: body.colourCode === undefined ? null : (body.colourCode as string | null),
+      sellingPrice: body.sellingPrice as number,
+      mrp: body.mrp as number,
+      costPrice: body.costPrice === undefined ? null : (body.costPrice as number | null),
+      quantity: body.quantity === undefined ? 0 : (body.quantity as number),
+      lowStockThreshold: body.lowStockThreshold === undefined ? null : (body.lowStockThreshold as number | null),
+      status: body.status as string | undefined,
+    });
+
+    await recordAudit(req.user!.id, 'variant.create', 'variant', result.id, {
+      productId: req.params.productId,
+      sku: result.sku,
+    });
+
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /admin/products/:productId/variants/:variantId
+ * Update variant fields.
+ */
+router.patch('/admin/products/:productId/variants/:variantId', async (req, res, next) => {
+  try {
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
+    const { sku, barcode, size, colourName, colourCode, sellingPrice, mrp, costPrice, lowStockThreshold } = req.body as {
+      sku?: string; barcode?: string | null; size?: string; colourName?: string;
+      colourCode?: string | null; sellingPrice?: number; mrp?: number;
+      costPrice?: number | null; lowStockThreshold?: number | null;
+    };
+
+    const result = await updateVariant(req.params.productId, req.params.variantId, {
+      sku, barcode, size, colourName, colourCode, sellingPrice, mrp, costPrice, lowStockThreshold,
+    });
+
+    await recordAudit(req.user!.id, 'variant.update', 'variant', result.id, {
+      changes: { sku, size, colourName, sellingPrice, mrp },
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /admin/products/:productId/variants/:variantId/status
+ * Archive or activate a variant.
+ */
+router.patch('/admin/products/:productId/variants/:variantId/status', async (req, res, next) => {
+  try {
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
+    const { status } = req.body as { status?: unknown };
+
+    if (!status || typeof status !== 'string') {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'status is required' } });
+      return;
+    }
+
+    const result = await setVariantStatus(req.params.productId, req.params.variantId, status);
+
+    await recordAudit(req.user!.id, 'variant.status_change', 'variant', result.id, {
+      newStatus: result.status,
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /admin/products/:productId/variants/:variantId/inventory
+ * Set variant inventory quantity (concurrency-safe).
+ */
+router.put('/admin/products/:productId/variants/:variantId/inventory', async (req, res, next) => {
+  try {
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
+    const { quantity } = req.body as { quantity?: unknown };
+
+    if (quantity === undefined || quantity === null) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'quantity is required' } });
+      return;
+    }
+    if (typeof quantity !== 'number' || !Number.isInteger(quantity)) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'quantity must be an integer' } });
+      return;
+    }
+
+    const result = await setVariantInventory(req.params.productId, req.params.variantId, quantity);
+
+    await recordAudit(req.user!.id, 'variant.inventory_set', 'variant', result.id, {
+      newQuantity: quantity,
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /admin/products/:productId/variants/:variantId/pricing
+ * Set variant pricing (concurrency-safe).
+ */
+router.put('/admin/products/:productId/variants/:variantId/pricing', async (req, res, next) => {
+  try {
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
+    const { sellingPrice, mrp, costPrice } = req.body as {
+      sellingPrice?: unknown; mrp?: unknown; costPrice?: unknown;
+    };
+
+    if (sellingPrice === undefined || sellingPrice === null) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'sellingPrice is required' } });
+      return;
+    }
+    if (mrp === undefined || mrp === null) {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'mrp is required' } });
+      return;
+    }
+
+    const result = await setVariantPricing(
+      req.params.productId,
+      req.params.variantId,
+      sellingPrice as number,
+      mrp as number,
+      costPrice === undefined ? undefined : (costPrice as number | null),
+    );
+
+    await recordAudit(req.user!.id, 'variant.pricing_set', 'variant', result.id, {
+      sellingPrice: result.sellingPrice,
+      mrp: result.mrp,
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ===================== Inventory & Pricing Write (backend_write or higher) =====================
 
 router.put('/admin/products/:slug/inventory', async (req, res, next) => {
@@ -313,6 +543,40 @@ router.put('/admin/products/:slug/price', async (req, res, next) => {
     });
 
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ===================== Session Identity (backend_read or higher) =====================
+
+/**
+ * GET /admin/me
+ * Returns the authenticated user's identity and backend roles.
+ * Roles are read from the database (server-authoritative, not from JWT).
+ */
+router.get('/admin/me', async (req, res, next) => {
+  try {
+    const db = getDatabase();
+    const user = await db
+      .selectFrom('users')
+      .select(['users.id', 'users.email', 'users.mobile_number', 'users.mobile_verified_at'])
+      .where('users.id', '=', req.user!.id)
+      .executeTakeFirst();
+
+    if (!user) {
+      throw AppError.notFound('User not found');
+    }
+
+    const roles = await getUserRoles(user.id);
+
+    res.json({
+      id: user.id,
+      email: user.email,
+      mobileNumber: user.mobile_number ?? null,
+      mobileVerified: user.mobile_verified_at !== null && user.mobile_number !== null,
+      roles,
+    });
   } catch (err) {
     next(err);
   }
@@ -556,6 +820,377 @@ router.get('/admin/analytics/products', async (req, res, next) => {
       .execute();
 
     res.json({ products: rows, limit, offset });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ===================== Admin Order Management =====================
+
+// Read: backend_read, backend_write, or backend_admin
+// Write: backend_write or backend_admin
+// Sensitive (refunds): backend_admin
+
+/**
+ * GET /admin/orders
+ * List orders with filtering, search, and pagination.
+ */
+router.get('/admin/orders', async (req, res, next) => {
+  try {
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const offset = parseInt(req.query.offset as string, 10) || 0;
+    const result = await listAdminOrders({
+      limit,
+      offset,
+      search: req.query.search as string | undefined,
+      status: req.query.status as string | undefined,
+      paymentStatus: req.query.paymentStatus as string | undefined,
+      shippingStatus: req.query.shippingStatus as string | undefined,
+      dateFrom: req.query.dateFrom as string | undefined,
+      dateTo: req.query.dateTo as string | undefined,
+      sort: req.query.sort as 'newest' | 'oldest' | 'total_asc' | 'total_desc' | undefined,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /admin/orders/:orderId
+ * Get full order detail (no ownership filter).
+ */
+router.get('/admin/orders/:orderId', async (req, res, next) => {
+  try {
+    const result = await getAdminOrder(req.params.orderId);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /admin/orders/:orderId/status
+ * Transition order status with validation.
+ */
+router.patch('/admin/orders/:orderId/status', async (req, res, next) => {
+  try {
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
+    const { status, reason } = req.body as { status?: unknown; reason?: unknown };
+    if (!status || typeof status !== 'string') {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'status is required' } });
+      return;
+    }
+
+    const result = await updateOrderStatus(
+      req.params.orderId,
+      status,
+      req.user!.id,
+      typeof reason === 'string' ? reason : undefined,
+    );
+
+    await recordAudit(req.user!.id, 'order.status_change', 'order', req.params.orderId, {
+      newStatus: status,
+      reason,
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /admin/orders/:orderId/shipping-status
+ * Update the shipping record's status.
+ */
+router.patch('/admin/orders/:orderId/shipping-status', async (req, res, next) => {
+  try {
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
+    const { status } = req.body as { status?: unknown };
+    if (!status || typeof status !== 'string') {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'status is required' } });
+      return;
+    }
+
+    await updateShippingStatus(req.params.orderId, status);
+
+    await recordAudit(req.user!.id, 'order.shipping_status_change', 'order', req.params.orderId, {
+      shippingStatus: status,
+    });
+
+    res.json({ message: 'Shipping status updated' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /admin/orders/:orderId/cancel
+ * Cancel an order (idempotent).
+ */
+router.post('/admin/orders/:orderId/cancel', async (req, res, next) => {
+  try {
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
+    const { reason } = req.body as { reason?: unknown };
+
+    const result = await cancelOrder(
+      req.params.orderId,
+      req.user!.id,
+      typeof reason === 'string' ? reason : undefined,
+    );
+
+    await recordAudit(req.user!.id, 'order.cancel', 'order', req.params.orderId, {
+      reason,
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /admin/orders/:orderId/refunds
+ * Record a refund (backend_admin only).
+ */
+router.post('/admin/orders/:orderId/refunds', async (req, res, next) => {
+  try {
+    await enforceRole(req, 'backend_admin');
+
+    const { amount, currency, reason } = req.body as {
+      amount?: unknown; currency?: unknown; reason?: unknown;
+    };
+
+    if (amount === undefined || amount === null || typeof amount !== 'number') {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'amount is required and must be a number' } });
+      return;
+    }
+
+    const result = await createRefund(
+      req.params.orderId,
+      amount,
+      (typeof currency === 'string' ? currency : 'USD'),
+      typeof reason === 'string' ? reason : undefined,
+      req.user!.id,
+    );
+
+    await recordAudit(req.user!.id, 'order.refund_created', 'order', req.params.orderId, {
+      refundId: result.id,
+      amount: result.amount,
+      currency: result.currency,
+    });
+
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ===================== Customer Management =====================
+
+/**
+ * GET /admin/customers
+ * List customers (users without backend roles).
+ */
+router.get('/admin/customers', async (req, res, next) => {
+  try {
+    await enforceRole(req, 'backend_read', 'backend_write', 'backend_admin');
+
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const offset = parseInt(req.query.offset as string, 10) || 0;
+    const result = await listCustomers({
+      limit,
+      offset,
+      search: req.query.search as string | undefined,
+      status: req.query.status as string | undefined,
+      mobileVerified: req.query.mobileVerified === 'true' ? true : req.query.mobileVerified === 'false' ? false : undefined,
+      sort: req.query.sort as 'newest' | 'oldest' | undefined,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /admin/customers/:customerId
+ * Get customer detail including profile, identities, order summary.
+ */
+router.get('/admin/customers/:customerId', async (req, res, next) => {
+  try {
+    await enforceRole(req, 'backend_read', 'backend_write', 'backend_admin');
+    const result = await getCustomerDetail(req.params.customerId);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /admin/customers/:customerId/status
+ * Enable or disable a customer account (backend_admin only).
+ */
+router.patch('/admin/customers/:customerId/status', async (req, res, next) => {
+  try {
+    await enforceRole(req, 'backend_admin');
+
+    const { status } = req.body as { status?: unknown };
+    if (!status || typeof status !== 'string') {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'status is required (active or disabled)' } });
+      return;
+    }
+
+    const result = await updateCustomerStatus(
+      req.params.customerId,
+      status,
+      req.user!.id,
+    );
+
+    await recordAudit(req.user!.id, 'customer.status_change', 'customer', req.params.customerId, {
+      newStatus: status,
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /admin/customers/:customerId/orders
+ * List orders for a specific customer.
+ */
+router.get('/admin/customers/:customerId/orders', async (req, res, next) => {
+  try {
+    await enforceRole(req, 'backend_read', 'backend_write', 'backend_admin');
+
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const offset = parseInt(req.query.offset as string, 10) || 0;
+    const result = await listCustomerOrders(req.params.customerId, limit, offset);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ===================== Store Settings =====================
+
+/**
+ * GET /admin/settings/store
+ * Read the store configuration (backend_read or higher).
+ */
+router.get('/admin/settings/store', async (req, res, next) => {
+  try {
+    const result = await getStoreSettings();
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /admin/settings/store
+ * Update store configuration (backend_admin only).
+ */
+router.patch('/admin/settings/store', async (req, res, next) => {
+  try {
+    await enforceRole(req, 'backend_admin');
+
+    const result = await updateStoreSettings(req.body as Record<string, unknown>);
+
+    await recordAudit(req.user!.id, 'settings.store_update', 'settings', null, {
+      changes: Object.keys(req.body as Record<string, unknown>),
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ===================== Returns & Tracking =====================
+
+/**
+ * GET /admin/returns
+ * List return requests (backend_read or higher).
+ */
+router.get('/admin/returns', async (req, res, next) => {
+  try {
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const offset = parseInt(req.query.offset as string, 10) || 0;
+    const result = await listReturns(limit, offset);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /admin/returns/:returnId
+ * Get return request detail.
+ */
+router.get('/admin/returns/:returnId', async (req, res, next) => {
+  try {
+    const result = await getReturnDetail(req.params.returnId);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /admin/returns/:returnId/status
+ * Approve, reject, or progress a return (backend_write or backend_admin).
+ */
+router.patch('/admin/returns/:returnId/status', async (req, res, next) => {
+  try {
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
+    const { status } = req.body as { status?: unknown };
+    if (!status || typeof status !== 'string') {
+      res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'status is required' } });
+      return;
+    }
+
+    const result = await updateReturnStatus(req.params.returnId, status, req.user!.id);
+
+    await recordAudit(req.user!.id, 'return.status_change', 'return', req.params.returnId, {
+      newStatus: status,
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /admin/orders/:orderId/shipping/tracking
+ * Update shipment tracking info.
+ */
+router.put('/admin/orders/:orderId/shipping/tracking', async (req, res, next) => {
+  try {
+    await enforceRole(req, 'backend_write', 'backend_admin');
+
+    const { provider, trackingNumber, trackingUrl } = req.body as {
+      provider?: string; trackingNumber?: string; trackingUrl?: string;
+    };
+
+    await updateShipmentTracking(req.params.orderId, {
+      provider,
+      number: trackingNumber,
+      url: trackingUrl,
+    });
+
+    await recordAudit(req.user!.id, 'order.tracking_updated', 'order', req.params.orderId, {
+      provider,
+    });
+
+    res.json({ message: 'Tracking info updated' });
   } catch (err) {
     next(err);
   }

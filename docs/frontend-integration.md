@@ -173,10 +173,19 @@ The Back-office application must handle role-based UI visibility.
 
 ### Obtaining the User's Roles
 
-The JWT does NOT contain roles. The frontend should determine available roles by:
+The JWT does NOT contain roles. The frontend should call `GET /admin/me` (authenticated, requires at least one backend role) to retrieve the user's identity and assigned backend roles at once:
 
-1. Trying to access a known endpoint and checking the response (403 = insufficient permissions)
-2. OR calling `GET /admin/users/me` (if implemented by the frontend or a dedicated profile endpoint)
+```json
+{
+  "id": "uuid",
+  "email": "admin@example.com",
+  "mobileNumber": "+919876543210",
+  "mobileVerified": true,
+  "roles": ["backend_read", "backend_write"]
+}
+```
+
+If the user has no backend roles, the endpoint returns 403. The frontend can use this to gate the back-office UI and derive available permissions from the `roles` array.
 
 ---
 
@@ -298,6 +307,12 @@ The backend applies rate limits to abuse-prone endpoints. Frontends should handl
 
 | Area | Endpoints | Min Role |
 |------|-----------|----------|
+| **Orders** | GET /admin/orders, GET /admin/orders/:orderId | backend_read |
+| | PATCH /admin/orders/:orderId/status, PATCH /admin/orders/:orderId/shipping-status, POST /admin/orders/:orderId/cancel | backend_write |
+| | POST /admin/orders/:orderId/refunds | backend_admin |
+| **Variants** | GET /admin/products/:productId/variants, GET /admin/products/:productId/variants/:variantId | backend_read |
+| | POST /admin/products/:productId/variants, PATCH /admin/products/:productId/variants/:variantId, PATCH /admin/products/:productId/variants/:variantId/status, PUT /admin/products/:productId/variants/:variantId/inventory, PUT /admin/products/:productId/variants/:variantId/pricing | backend_write |
+| **Session** | GET /admin/me | backend_read |
 | **Dashboard** | GET /admin/analytics/summary | backend_read |
 | **Analytics** | GET /admin/analytics/orders, /admin/analytics/revenue, /admin/analytics/products | backend_read |
 | **Products** | GET /admin/products, GET /admin/products/:id | backend_read |

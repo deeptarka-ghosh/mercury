@@ -7,6 +7,7 @@ export interface AccessTokenPayload {
   sub: string;
   email: string;
   type: 'access';
+  adminVerified?: boolean;
 }
 
 export interface RefreshTokenPayload {
@@ -23,14 +24,16 @@ interface JwtClaims {
   exp: number;
   type: 'access' | 'refresh';
   email?: string;
+  admin_verified?: boolean;
 }
 
-export function signAccessToken(userId: string, email: string): string {
+export function signAccessToken(userId: string, email: string, adminVerified = false): string {
   const payload: Omit<JwtClaims, 'iat' | 'exp'> = {
     sub: userId,
     iss: env.JWT_ISSUER,
     type: 'access',
     email,
+    ...(adminVerified ? { admin_verified: true } : {}),
   };
 
   return jwt.sign(payload, env.JWT_SECRET, {
@@ -76,7 +79,7 @@ export function verifyToken(token: string, expectedType?: 'access' | 'refresh'):
   }
 
   if (decoded.type === 'access' && decoded.email) {
-    return { sub: decoded.sub, email: decoded.email, type: 'access' };
+    return { sub: decoded.sub, email: decoded.email, type: 'access', adminVerified: decoded.admin_verified ?? false };
   }
 
   if (decoded.type === 'refresh') {

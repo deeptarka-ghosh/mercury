@@ -29,6 +29,7 @@ beforeAll(async () => {
   await sql`DELETE FROM cart_items`.execute(db);
   await sql`DELETE FROM prices`.execute(db);
   await sql`DELETE FROM inventory`.execute(db);
+  await sql`DELETE FROM product_variants`.execute(db);
   await sql`DELETE FROM products`.execute(db);
   await sql`DELETE FROM categories`.execute(db);
   await sql`DELETE FROM refresh_tokens`.execute(db);
@@ -52,6 +53,11 @@ beforeAll(async () => {
   await sql`INSERT INTO prices (product_id, amount) VALUES (${activeProductId}, 19.99)`.execute(db);
   await sql`INSERT INTO inventory (product_id, quantity) VALUES (${activeProductId}, 100)`.execute(db);
 
+  await sql`
+    INSERT INTO product_variants (product_id, sku, size, colour_name, status, selling_price, mrp, quantity, created_at, updated_at)
+    VALUES (${activeProductId}, 'widget-a-default', 'Default', 'Default', 'active', 19.99, 19.99, 100, now(), now())
+  `.execute(db);
+
   // Active product without price
   const r2 = await sql<{ id: string }>`
     INSERT INTO products (name, slug, description, status, category_id, created_at, updated_at)
@@ -60,6 +66,11 @@ beforeAll(async () => {
   `.execute(db);
   unpricedProductId = r2.rows[0]!.id;
   await sql`INSERT INTO inventory (product_id, quantity) VALUES (${unpricedProductId}, 50)`.execute(db);
+
+  await sql`
+    INSERT INTO product_variants (product_id, sku, size, colour_name, status, selling_price, mrp, quantity, created_at, updated_at)
+    VALUES (${unpricedProductId}, 'widget-b-default', 'Default', 'Default', 'active', 0, 0, 50, now(), now())
+  `.execute(db);
 
   // Active product with zero stock
   const r3 = await sql<{ id: string }>`
@@ -70,6 +81,11 @@ beforeAll(async () => {
   outOfStockProductId = r3.rows[0]!.id;
   await sql`INSERT INTO prices (product_id, amount) VALUES (${outOfStockProductId}, 9.99)`.execute(db);
   await sql`INSERT INTO inventory (product_id, quantity) VALUES (${outOfStockProductId}, 0)`.execute(db);
+
+  await sql`
+    INSERT INTO product_variants (product_id, sku, size, colour_name, status, selling_price, mrp, quantity, created_at, updated_at)
+    VALUES (${outOfStockProductId}, 'widget-c-default', 'Default', 'Default', 'active', 9.99, 9.99, 0, now(), now())
+  `.execute(db);
 
   // Draft product
   const r4 = await sql<{ id: string }>`
@@ -111,6 +127,7 @@ afterAll(async () => {
   await sql`DELETE FROM cart_items`.execute(db);
   await sql`DELETE FROM prices`.execute(db);
   await sql`DELETE FROM inventory`.execute(db);
+  await sql`DELETE FROM product_variants`.execute(db);
   await sql`DELETE FROM products`.execute(db);
   await sql`DELETE FROM categories`.execute(db);
   await sql`DELETE FROM refresh_tokens`.execute(db);
@@ -190,8 +207,8 @@ describe('POST /cart', () => {
     };
     expect(body.productSlug).toBe('widget-b');
     expect(body.quantity).toBe(1);
-    expect(body.unitPrice).toBeNull();
-    expect(body.lineTotal).toBeNull();
+    expect(body.unitPrice).toBe('0.00');
+    expect(body.lineTotal).toBe('0.00');
   });
 
   it('rejects adding an out-of-stock product', async () => {
@@ -202,7 +219,7 @@ describe('POST /cart', () => {
       .expect(400);
 
     expect(res.body).toEqual({
-      error: { code: 'BAD_REQUEST', message: 'Product is out of stock' },
+      error: { code: 'BAD_REQUEST', message: 'Variant is out of stock' },
     });
   });
 
@@ -357,8 +374,8 @@ describe('GET /cart with items', () => {
 
     const widgetB = body.items.find((i) => i.productSlug === 'widget-b')!;
     expect(widgetB.quantity).toBe(1);
-    expect(widgetB.unitPrice).toBeNull();
-    expect(widgetB.lineTotal).toBeNull();
+    expect(widgetB.unitPrice).toBe('0.00');
+    expect(widgetB.lineTotal).toBe('0.00');
   });
 });
 
