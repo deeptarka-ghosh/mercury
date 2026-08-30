@@ -1,5 +1,55 @@
 # Mercury — Database Schema
 
+## Clothing catalog and customer signals (migrations 037–038)
+
+Categories and products include audience and deterministic sort/merchandising
+priority. Products also expose material, fit, care, and badge metadata;
+`product_categories` supports ordered many-to-many taxonomy membership.
+`customer_addresses`, `customer_preferences`, and `customer_behavior_events`
+are all user-owned with cascading cleanup. One partial unique index enforces one
+default address per customer. Behavior storage requires application-level
+personalization consent and contains constrained event subjects only.
+
+## Recommendation rules (migration 036)
+
+`recommendation_rules` stores placement, explainable strategy, optional source,
+result limit, publication state, priority, and schedule. Source-shape checks
+prevent ambiguous strategies. `recommendation_rule_products` provides unique,
+explicit ordering for manual rules. Public selection is priority then stable ID;
+strategy results always use deterministic secondary ordering.
+
+## Homepage layouts (migration 035)
+
+`homepage_layouts` provides named, slug-addressable, scheduled publications.
+`homepage_sections` stores an ordered, uniquely keyed set of enabled content
+blocks with a constrained section/source type, optional entity or banner
+placement reference, and extensible JSONB configuration. Cascading deletion and
+per-layout unique key/position constraints make atomic section replacement safe.
+
+## Merchandising banners (migration 034)
+
+`merchandising_banners` stores placement-addressable responsive creative with
+desktop and optional mobile image URLs, required alt text, typed destinations,
+draft/active/archived state, priority, and an optional publication window.
+Database checks enforce valid states, target types, schedule order, target
+shape, and bounded priority. Public resolution is deterministic by placement,
+priority descending, then ID.
+
+## Campaigns and promotions (migration 033)
+
+`merchandising_campaigns` and `merchandising_campaign_collections` provide
+scheduled campaign shells with deterministic collection placement.
+`promotions` stores percentage or fixed-amount offers, optional codes and
+collection scope, minimum-order amount, stacking policy, schedule and priority.
+
+## Merchandising collections (migration 032)
+
+`merchandising_collections` stores named, slug-addressable merchandising units
+with type, publication status, integer priority, and optional start/end window.
+`merchandising_collection_products` is an ordered many-to-many link. Its primary
+key prevents duplicate products and its `(collection_id, position)` uniqueness
+constraint prevents ambiguous rank.
+
 ## Overview
 
 All data is stored in PostgreSQL. Kysely provides type-safe query building. The schema is defined by 23 ordered migrations in `src/migrations/`.

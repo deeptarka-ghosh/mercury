@@ -5,7 +5,8 @@ import { sql } from 'kysely';
 import { verifyPassword } from '../../auth/password.js';
 import { signAccessToken, signRefreshToken } from '../../auth/tokens.js';
 import { getUserRoles, hasAnyBackendRole } from '../../auth/middleware.js';
-import { logger } from '../../config/logger.js';
+import { smsProvider } from '../../integrations/sms.js';
+import { env } from '../../config/env.js';
 
 // ===== Constants =====
 const CHALLENGE_EXPIRY_SECONDS = 300; // 5 minutes
@@ -37,6 +38,7 @@ export interface AdminLoginChallengeResult {
   requiresOtp: true;
   maskedMobile: string;
   expiresInSeconds: number;
+  developmentOtp?: string;
 }
 
 /**
@@ -110,20 +112,14 @@ export async function adminLogin(
 
   const challengeId = insertResult.rows[0]!.id;
 
-  // Dev mode: log the OTP through SMS provider abstraction
-  logger.info(
-    { challengeId, otp, mobile: maskMobile(user.mobile_number) },
-    'Admin login OTP generated',
-  );
-
-  // In production, the SMS provider would send the OTP here
-  // For now, the log provider serves as the SMS abstraction
+  await smsProvider.sendOtp({ mobileNumber: user.mobile_number, otp, expiresInSeconds: CHALLENGE_EXPIRY_SECONDS });
 
   return {
     challengeId,
     requiresOtp: true,
     maskedMobile: maskMobile(user.mobile_number),
     expiresInSeconds: CHALLENGE_EXPIRY_SECONDS,
+    ...(env.NODE_ENV === 'production' ? {} : { developmentOtp: otp }),
   };
 }
 

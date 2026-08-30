@@ -238,48 +238,19 @@ export async function addToCart(
   const upsertVariantId = variant.variantId;
 
   if (isVirtual) {
-    // Backward compat: no real variant — use old product-level upsert
-    const existingCart = await db
-      .selectFrom('cart_items')
-      .select(['cart_items.id', 'cart_items.quantity'])
-      .where('cart_items.user_id', '=', userId)
-      .where('cart_items.product_id', '=', productId)
-      .where('cart_items.variant_id', 'is', null)
-      .executeTakeFirst();
-
-    if (existingCart) {
-      await db
-        .updateTable('cart_items')
-        .set({ quantity: existingCart.quantity + quantity, updated_at: sql`now()` })
-        .where('cart_items.id', '=', existingCart.id)
-        .execute();
-    } else {
-      await sql`
-        INSERT INTO cart_items (user_id, product_id, quantity, created_at, updated_at)
-        VALUES (${userId}, ${productId}, ${quantity}, now(), now())
-      `.execute(db);
-    }
+    await sql`
+      INSERT INTO cart_items (user_id, product_id, quantity, created_at, updated_at)
+      VALUES (${userId}, ${productId}, ${quantity}, now(), now())
+      ON CONFLICT (user_id, product_id) DO UPDATE
+      SET quantity = cart_items.quantity + EXCLUDED.quantity, updated_at = now()
+    `.execute(db);
   } else {
-      // Check if a cart row already exists for this user + variant
-      const existingCart = await db
-        .selectFrom('cart_items')
-        .select(['cart_items.id', 'cart_items.quantity'])
-        .where('cart_items.user_id', '=', userId)
-        .where('cart_items.variant_id', '=', upsertVariantId)
-        .executeTakeFirst();
-
-    if (existingCart) {
-      await db
-        .updateTable('cart_items')
-        .set({ quantity: existingCart.quantity + quantity, updated_at: sql`now()` })
-        .where('cart_items.id', '=', existingCart.id)
-        .execute();
-    } else {
-      await sql`
-        INSERT INTO cart_items (user_id, product_id, variant_id, quantity, created_at, updated_at)
-        VALUES (${userId}, ${productId}, ${upsertVariantId}, ${quantity}, now(), now())
-      `.execute(db);
-    }
+    await sql`
+      INSERT INTO cart_items (user_id, product_id, variant_id, quantity, created_at, updated_at)
+      VALUES (${userId}, ${productId}, ${upsertVariantId}, ${quantity}, now(), now())
+      ON CONFLICT (user_id, variant_id) WHERE variant_id IS NOT NULL DO UPDATE
+      SET quantity = cart_items.quantity + EXCLUDED.quantity, updated_at = now()
+    `.execute(db);
   }
 
   // Fetch the current state — use product_id + variant_id or just product_id for virtual variants

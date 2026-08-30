@@ -1,0 +1,10 @@
+import { Router } from 'express'; import { authenticate } from '../../auth/middleware.js'; import { createAddress, deleteAddress, getPreferences, listAddresses, recordBehavior, updateAddress, updatePreferences, type AddressInput, type BehaviorInput, type PreferenceInput } from './service.js';
+const router = Router(); router.use('/account', authenticate);
+router.get('/account/addresses', async (req,res,next)=>{try{res.json(await listAddresses(req.user!.id));}catch(error){next(error);}});
+router.post('/account/addresses', async (req,res,next)=>{try{res.status(201).json(await createAddress(req.user!.id,req.body as AddressInput));}catch(error){next(error);}});
+router.patch('/account/addresses/:id', async (req,res,next)=>{try{res.json(await updateAddress(req.user!.id,String(req.params.id),req.body as Partial<AddressInput>));}catch(error){next(error);}});
+router.delete('/account/addresses/:id', async (req,res,next)=>{try{await deleteAddress(req.user!.id,String(req.params.id));res.status(204).send();}catch(error){next(error);}});
+router.get('/account/preferences', async (req,res,next)=>{try{res.json(await getPreferences(req.user!.id));}catch(error){next(error);}});
+router.put('/account/preferences', async (req,res,next)=>{try{res.json(await updatePreferences(req.user!.id,req.body as PreferenceInput));}catch(error){next(error);}});
+router.post('/account/behavior', async (req,res,next)=>{try{res.status(201).json(await recordBehavior(req.user!.id,req.body as BehaviorInput));}catch(error){next(error);}});
+export default router;

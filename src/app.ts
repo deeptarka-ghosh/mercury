@@ -21,6 +21,12 @@ import wishlistRouter from './features/wishlist/routes.js';
 import adminRouter from './features/admin/routes.js';
 import adminAuthRouter from './features/admin/authRoutes.js';
 import mediaRouter from './features/media/routes.js';
+import collectionsRouter from './features/collections/routes.js';
+import campaignsRouter from './features/campaigns/routes.js';
+import bannersRouter from './features/banners/routes.js';
+import homepageRouter from './features/homepage/routes.js';
+import recommendationsRouter from './features/recommendations/routes.js';
+import customerDataRouter from './features/customerData/routes.js';
 
 export function createApp(): express.Application {
   const app = express();
@@ -69,6 +75,12 @@ export function createApp(): express.Application {
   app.use(adminRouter);
   app.use(adminAuthRouter);
   app.use(mediaRouter);
+  app.use(collectionsRouter);
+  app.use(campaignsRouter);
+  app.use(bannersRouter);
+  app.use(homepageRouter);
+  app.use(recommendationsRouter);
+  app.use(customerDataRouter);
 
   app.use((_req, res) => {
     res.status(404).json({

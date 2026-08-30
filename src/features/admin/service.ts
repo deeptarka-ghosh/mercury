@@ -38,6 +38,7 @@ export async function listAllCategories() {
       'categories.slug',
       'categories.description',
       'categories.parent_id',
+      'categories.audience','categories.sort_order',
       'categories.created_at',
       'categories.updated_at',
     ])
@@ -56,6 +57,7 @@ export async function getCategoryById(id: string) {
       'categories.slug',
       'categories.description',
       'categories.parent_id',
+      'categories.audience','categories.sort_order',
       'categories.created_at',
       'categories.updated_at',
     ])
@@ -71,6 +73,7 @@ export async function createCategory(data: {
   slug: string;
   description?: string | null;
   parentId?: string | null;
+  audience?: string | null; sortOrder?: number;
 }) {
   const db = getDatabase();
   try {
@@ -83,9 +86,9 @@ export async function createCategory(data: {
       created_at: string;
       updated_at: string;
     }>`
-      INSERT INTO categories (name, slug, description, parent_id, created_at, updated_at)
-      VALUES (${data.name}, ${data.slug}, ${data.description ?? null}, ${data.parentId ?? null}, now(), now())
-      RETURNING id, name, slug, description, parent_id, created_at, updated_at
+      INSERT INTO categories (name, slug, description, parent_id, audience, sort_order, created_at, updated_at)
+      VALUES (${data.name}, ${data.slug}, ${data.description ?? null}, ${data.parentId ?? null}, ${data.audience ?? null}, ${data.sortOrder ?? 0}, now(), now())
+      RETURNING id, name, slug, description, parent_id, audience, sort_order, created_at, updated_at
     `.execute(db);
     return mapCategory(result.rows[0]!);
   } catch (err: unknown) {
@@ -101,17 +104,19 @@ export async function createCategory(data: {
 
 export async function updateCategory(
   id: string,
-  data: { name?: string; slug?: string; description?: string | null; parentId?: string | null },
+  data: { name?: string; slug?: string; description?: string | null; parentId?: string | null; audience?: string | null; sortOrder?: number },
 ) {
   const db = getDatabase();
   const now = new Date().toISOString();
 
-  const updateFields: Record<string, string | null> = { updated_at: now };
+  const updateFields: Record<string, string | number | null> = { updated_at: now };
 
   if (data.name !== undefined) updateFields.name = data.name;
   if (data.slug !== undefined) updateFields.slug = data.slug;
   if (data.description !== undefined) updateFields.description = data.description;
   if (data.parentId !== undefined) updateFields.parent_id = data.parentId;
+  if (data.audience !== undefined) updateFields.audience = data.audience;
+  if (data.sortOrder !== undefined) updateFields.sort_order = data.sortOrder;
 
   // Check at least one custom field was provided (updated_at is always set)
   const customKeys = Object.keys(updateFields).filter((k) => k !== 'updated_at');
@@ -167,6 +172,7 @@ export interface AdminProductInput {
   description?: string | null;
   status?: string;
   categoryId?: string | null;
+  audience?: string | null; material?: string | null; fit?: string | null; careInstructions?: string | null; badge?: string | null; merchandisingPriority?: number;
 }
 
 export async function listAllProducts(statusFilter?: string) {
@@ -182,6 +188,7 @@ export async function listAllProducts(statusFilter?: string) {
       'products.description',
       'products.status',
       'products.category_id',
+      'products.audience','products.material','products.fit','products.care_instructions','products.badge','products.merchandising_priority',
       'categories.name as category_name',
       sql<string | null>`CAST(prices.amount AS TEXT)`.as('price'),
       'products.created_at',
@@ -210,6 +217,7 @@ export async function getProductById(id: string) {
       'products.description',
       'products.status',
       'products.category_id',
+      'products.audience','products.material','products.fit','products.care_instructions','products.badge','products.merchandising_priority',
       'categories.name as category_name',
       sql<string | null>`CAST(prices.amount AS TEXT)`.as('price'),
       'products.created_at',
@@ -229,9 +237,9 @@ export async function createProduct(data: AdminProductInput) {
       id: string; name: string; slug: string; description: string | null;
       status: string; category_id: string | null; created_at: string; updated_at: string;
     }>`
-      INSERT INTO products (name, slug, description, status, category_id, created_at, updated_at)
-      VALUES (${data.name}, ${data.slug}, ${data.description ?? null}, ${data.status ?? 'draft'}, ${data.categoryId ?? null}, now(), now())
-      RETURNING id, name, slug, description, status, category_id, created_at, updated_at
+      INSERT INTO products (name, slug, description, status, category_id, audience, material, fit, care_instructions, badge, merchandising_priority, created_at, updated_at)
+      VALUES (${data.name}, ${data.slug}, ${data.description ?? null}, ${data.status ?? 'draft'}, ${data.categoryId ?? null}, ${data.audience ?? null}, ${data.material ?? null}, ${data.fit ?? null}, ${data.careInstructions ?? null}, ${data.badge ?? null}, ${data.merchandisingPriority ?? 0}, now(), now())
+      RETURNING id, name, slug, description, status, category_id, audience, material, fit, care_instructions, badge, merchandising_priority, created_at, updated_at
     `.execute(db);
     return mapProduct({
       ...result.rows[0]!,
@@ -248,18 +256,24 @@ export async function createProduct(data: AdminProductInput) {
 
 export async function updateProduct(
   id: string,
-  data: { name?: string; slug?: string; description?: string | null; status?: string; categoryId?: string | null },
+  data: Partial<AdminProductInput>,
 ) {
   const db = getDatabase();
   const now = new Date().toISOString();
 
-  const updateFields: Record<string, string | null> = { updated_at: now };
+  const updateFields: Record<string, string | number | null> = { updated_at: now };
 
   if (data.name !== undefined) updateFields.name = data.name;
   if (data.slug !== undefined) updateFields.slug = data.slug;
   if (data.description !== undefined) updateFields.description = data.description;
   if (data.status !== undefined) updateFields.status = data.status;
   if (data.categoryId !== undefined) updateFields.category_id = data.categoryId;
+  if (data.audience !== undefined) updateFields.audience = data.audience;
+  if (data.material !== undefined) updateFields.material = data.material;
+  if (data.fit !== undefined) updateFields.fit = data.fit;
+  if (data.careInstructions !== undefined) updateFields.care_instructions = data.careInstructions;
+  if (data.badge !== undefined) updateFields.badge = data.badge;
+  if (data.merchandisingPriority !== undefined) updateFields.merchandising_priority = data.merchandisingPriority;
 
   const customKeys = Object.keys(updateFields).filter((k) => k !== 'updated_at');
   if (customKeys.length === 0) throw AppError.badRequest('Nothing to update');

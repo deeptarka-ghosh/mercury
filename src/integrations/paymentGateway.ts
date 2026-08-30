@@ -1,0 +1,5 @@
+export interface PaymentIntentRequest { orderId:string; amount:string; currency:string; idempotencyKey:string }
+export interface PaymentIntentResult { provider:string; providerReference:string; status:'pending'|'completed' }
+export interface PaymentGateway { readonly name:string; createIntent(request:PaymentIntentRequest):Promise<PaymentIntentResult>; verifyWebhook(payload:Buffer,signature:string):Promise<{providerReference:string;status:'completed'|'failed'}> }
+export class DevelopmentPaymentGateway implements PaymentGateway { readonly name='development'; createIntent(request:PaymentIntentRequest){return Promise.resolve({provider:this.name,providerReference:`dev-${request.orderId}-${request.idempotencyKey}`,status:'pending' as const});} verifyWebhook():Promise<{providerReference:string;status:'completed'|'failed'}>{return Promise.reject(new Error('Development payments are confirmed through the authenticated local status boundary; no external webhook is available.'));} }
+export const paymentGateway:PaymentGateway=new DevelopmentPaymentGateway();

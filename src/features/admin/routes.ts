@@ -86,7 +86,7 @@ router.post('/admin/categories', async (req, res, next) => {
     // Require write or higher for mutations
     await enforceRole(req, 'backend_write', 'backend_admin');
 
-    const body = req.body as { name?: unknown; slug?: unknown; description?: unknown; parentId?: unknown };
+    const body = req.body as { name?: unknown; slug?: unknown; description?: unknown; parentId?: unknown; audience?: unknown; sortOrder?: unknown };
 
     if (!body.name || typeof body.name !== 'string') {
       res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'name is required' } });
@@ -110,6 +110,8 @@ router.post('/admin/categories', async (req, res, next) => {
       slug: body.slug,
       description: body.description === undefined ? null : (body.description as string | null),
       parentId: body.parentId === undefined ? null : (body.parentId as string | null),
+      audience: body.audience === undefined ? null : (body.audience as string | null),
+      sortOrder: body.sortOrder === undefined ? 0 : Number(body.sortOrder),
     });
 
     await recordAudit(req.user!.id, 'category.create', 'category', result.id, {
@@ -127,13 +129,13 @@ router.patch('/admin/categories/:id', async (req, res, next) => {
   try {
     await enforceRole(req, 'backend_write', 'backend_admin');
 
-    const { name, slug, description, parentId } = req.body as {
-      name?: string; slug?: string; description?: string | null; parentId?: string | null;
+    const { name, slug, description, parentId, audience, sortOrder } = req.body as {
+      name?: string; slug?: string; description?: string | null; parentId?: string | null; audience?: string | null; sortOrder?: number;
     };
-    const result = await updateCategory(req.params.id, { name, slug, description, parentId });
+    const result = await updateCategory(req.params.id, { name, slug, description, parentId, audience, sortOrder });
 
     await recordAudit(req.user!.id, 'category.update', 'category', result.id, {
-      changes: { name, slug, description, parentId },
+      changes: { name, slug, description, parentId, audience, sortOrder },
     });
 
     res.json(result);
@@ -209,7 +211,7 @@ router.post('/admin/products', async (req, res, next) => {
   try {
     await enforceRole(req, 'backend_write', 'backend_admin');
 
-    const body = req.body as { name?: unknown; slug?: unknown; description?: unknown; status?: unknown; categoryId?: unknown };
+    const body = req.body as { name?: unknown; slug?: unknown; description?: unknown; status?: unknown; categoryId?: unknown; audience?: unknown; material?: unknown; fit?: unknown; careInstructions?: unknown; badge?: unknown; merchandisingPriority?: unknown };
 
     if (!body.name || typeof body.name !== 'string') {
       res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'name is required' } });
@@ -234,6 +236,7 @@ router.post('/admin/products', async (req, res, next) => {
       description: body.description === undefined ? null : (body.description as string | null),
       status: body.status === undefined ? 'draft' : (body.status as string),
       categoryId: body.categoryId === undefined ? null : (body.categoryId as string | null),
+      audience: body.audience === undefined ? null : (body.audience as string | null), material: body.material === undefined ? null : (body.material as string | null), fit: body.fit === undefined ? null : (body.fit as string | null), careInstructions: body.careInstructions === undefined ? null : (body.careInstructions as string | null), badge: body.badge === undefined ? null : (body.badge as string | null), merchandisingPriority: body.merchandisingPriority === undefined ? 0 : Number(body.merchandisingPriority),
     });
 
     await recordAudit(req.user!.id, 'product.create', 'product', result.id, {
@@ -252,13 +255,13 @@ router.patch('/admin/products/:id', async (req, res, next) => {
   try {
     await enforceRole(req, 'backend_write', 'backend_admin');
 
-    const { name, slug, description, status, categoryId } = req.body as {
-      name?: string; slug?: string; description?: string | null; status?: string; categoryId?: string | null;
+    const { name, slug, description, status, categoryId, audience, material, fit, careInstructions, badge, merchandisingPriority } = req.body as {
+      name?: string; slug?: string; description?: string | null; status?: string; categoryId?: string | null; audience?: string | null; material?: string | null; fit?: string | null; careInstructions?: string | null; badge?: string | null; merchandisingPriority?: number;
     };
-    const result = await updateProduct(req.params.id, { name, slug, description, status, categoryId });
+    const result = await updateProduct(req.params.id, { name, slug, description, status, categoryId, audience, material, fit, careInstructions, badge, merchandisingPriority });
 
     await recordAudit(req.user!.id, 'product.update', 'product', result.id, {
-      changes: { name, slug, description, status, categoryId },
+      changes: { name, slug, description, status, categoryId, audience, material, fit, careInstructions, badge, merchandisingPriority },
     });
 
     res.json(result);

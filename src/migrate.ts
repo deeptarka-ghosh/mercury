@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import { promises as fs } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { FileMigrationProvider, Migrator } from 'kysely/migration';
 import { createPool, destroyPool } from './db/pool.js';
 import { createDatabase, destroyDatabase } from './db/database.js';
@@ -17,6 +18,8 @@ async function main(): Promise<void> {
       fs,
       path,
       migrationFolder,
+      // Node's ESM loader requires file:// URLs for absolute Windows paths.
+      import: async (filePath) => import(pathToFileURL(filePath).href), // eslint-disable-line @typescript-eslint/no-unsafe-return
     }),
   });
 

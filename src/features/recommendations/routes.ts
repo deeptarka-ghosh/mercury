@@ -1,0 +1,12 @@
+import { Router } from 'express';
+import { authenticate, requireAnyRole } from '../../auth/middleware.js';
+import { recordAudit } from '../admin/service.js';
+import { createRule, listRules, replaceRuleProducts, resolvePersonalizedRecommendations, resolveRecommendations, updateRule, type RecommendationRuleInput } from './service.js';
+const router = Router(); const read = [authenticate, requireAnyRole('backend_read', 'backend_write', 'backend_admin', 'user_management')] as const; const write = [authenticate, requireAnyRole('backend_write', 'backend_admin')] as const;
+router.get('/recommendations/:placement', async (req, res, next) => { try { res.json(await resolveRecommendations(String(req.params.placement), typeof req.query.at === 'string' ? new Date(req.query.at) : new Date())); } catch (error) { next(error); } });
+router.get('/account/recommendations/:placement', authenticate, async (req, res, next) => { try { res.json(await resolvePersonalizedRecommendations(req.user!.id, String(req.params.placement), typeof req.query.at === 'string' ? new Date(req.query.at) : new Date())); } catch (error) { next(error); } });
+router.get('/admin/recommendation-rules', ...read, async (_req, res, next) => { try { res.json(await listRules()); } catch (error) { next(error); } });
+router.post('/admin/recommendation-rules', ...write, async (req, res, next) => { try { const result = await createRule(req.body as RecommendationRuleInput); await recordAudit(req.user!.id, 'recommendation_rule.create', 'recommendation_rule', result.id, { placement: result.placement }); res.status(201).json(result); } catch (error) { next(error); } });
+router.patch('/admin/recommendation-rules/:id', ...write, async (req, res, next) => { try { const body = req.body as Partial<RecommendationRuleInput>; const result = await updateRule(String(req.params.id), body); await recordAudit(req.user!.id, 'recommendation_rule.update', 'recommendation_rule', result.id, { changes: body }); res.json(result); } catch (error) { next(error); } });
+router.put('/admin/recommendation-rules/:id/products', ...write, async (req, res, next) => { try { const id = String(req.params.id); const result = await replaceRuleProducts(id, (req.body as { productIds?: unknown }).productIds); await recordAudit(req.user!.id, 'recommendation_rule.products.replace', 'recommendation_rule', id, { productIds: result.productIds }); res.json(result); } catch (error) { next(error); } });
+export default router;

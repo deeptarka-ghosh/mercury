@@ -1,0 +1,5 @@
+import { env } from '../config/env.js'; import { logger } from '../config/logger.js';
+export interface SmsProvider { readonly name:string; sendOtp(input:{mobileNumber:string;otp:string;expiresInSeconds:number}):Promise<void> }
+export class DevelopmentSmsProvider implements SmsProvider { readonly name='development'; sendOtp(input:{mobileNumber:string;otp:string;expiresInSeconds:number}){logger.info({provider:this.name,mobileSuffix:input.mobileNumber.slice(-4),expiresInSeconds:input.expiresInSeconds},'Development OTP accepted by local SMS adapter');return Promise.resolve();} }
+export class UnconfiguredProductionSmsProvider implements SmsProvider { readonly name:string; constructor(name:string){this.name=name;} sendOtp(){return Promise.reject(new Error(`SMS provider ${this.name} is not configured. Add a production adapter and credentials.`));} }
+export const smsProvider:SmsProvider=env.SMS_PROVIDER==='log'||env.SMS_PROVIDER==='development'?new DevelopmentSmsProvider():new UnconfiguredProductionSmsProvider(env.SMS_PROVIDER);

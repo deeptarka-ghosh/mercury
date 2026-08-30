@@ -50,7 +50,7 @@ router.get('/products/search', async (req, res, next) => {
     }
     if (inStock === 'true') filters.inStock = true;
     if (typeof sort === 'string') {
-      const validSorts = ['relevance', 'price_asc', 'price_desc', 'newest', 'name_asc', 'name_desc'];
+      const validSorts = ['relevance', 'merchandised', 'price_asc', 'price_desc', 'newest', 'name_asc', 'name_desc'];
       if (!validSorts.includes(sort)) {
         res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: `sort must be one of: ${validSorts.join(', ')}` } });
         return;
@@ -135,7 +135,7 @@ router.get('/products', async (req, res, next) => {
     }
     if (inStock === 'true') filters.inStock = true;
     if (typeof sort === 'string') {
-      const validSorts = ['relevance', 'price_asc', 'price_desc', 'newest', 'name_asc', 'name_desc'];
+      const validSorts = ['relevance', 'merchandised', 'price_asc', 'price_desc', 'newest', 'name_asc', 'name_desc'];
       if (!validSorts.includes(sort)) {
         res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: `sort must be one of: ${validSorts.join(', ')}` } });
         return;

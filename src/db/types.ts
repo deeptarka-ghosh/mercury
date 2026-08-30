@@ -43,6 +43,8 @@ export interface CategoriesTable {
   slug: string;
   description: string | null;
   parent_id: string | null;
+  audience: string | null;
+  sort_order: number;
   created_at: string;
   updated_at?: Generated<string>;
 }
@@ -54,6 +56,12 @@ export interface ProductsTable {
   description: string | null;
   status: string;
   category_id: string | null;
+  audience: string | null;
+  material: string | null;
+  fit: string | null;
+  care_instructions: string | null;
+  badge: string | null;
+  merchandising_priority: number;
   created_at: string;
   updated_at?: Generated<string>;
 }
@@ -327,12 +335,83 @@ export interface ExchangeRequestsTable {
   updated_at?: Generated<string>;
 }
 
+export interface MerchandisingCollectionsTable {
+  id: Generated<string>;
+  name: string;
+  slug: string;
+  description: string | null;
+  collection_type: string;
+  status: string;
+  priority: number;
+  starts_at: string | null;
+  ends_at: string | null;
+  created_at: string;
+  updated_at?: Generated<string>;
+}
+
+export interface ProductCategoriesTable { product_id: string; category_id: string; position: number; created_at: string }
+export interface CustomerAddressesTable { id: Generated<string>; user_id: string; label: string; recipient_name: string; address_line1: string; address_line2: string | null; city: string; state: string; postal_code: string; country_code: string; phone: string | null; is_default: boolean; created_at: string; updated_at?: Generated<string> }
+export interface CustomerPreferencesTable { user_id: string; audiences: string[]; category_ids: string[]; size_preferences: JSONColumnType<Record<string, string>, Record<string, string>, Record<string, string>>; preferred_colours: string[]; personalization_consent: boolean; marketing_consent: boolean; created_at: string; updated_at?: Generated<string> }
+export interface CustomerBehaviorEventsTable { id: Generated<string>; user_id: string; event_type: string; product_id: string | null; collection_id: string | null; category_id: string | null; search_query: string | null; occurred_at: string }
+
+export interface MerchandisingCollectionProductsTable {
+  collection_id: string;
+  product_id: string;
+  position: number;
+  created_at: string;
+}
+
+export interface MerchandisingCampaignsTable {
+  id: Generated<string>; name: string; slug: string; description: string | null;
+  status: string; priority: number; starts_at: string | null; ends_at: string | null;
+  created_at: string; updated_at?: Generated<string>;
+}
+
+export interface MerchandisingCampaignCollectionsTable {
+  campaign_id: string; collection_id: string; position: number; created_at: string;
+}
+
+export interface PromotionsTable {
+  id: Generated<string>; name: string; code: string | null; description: string | null;
+  discount_type: string; discount_value: string; minimum_order_amount: string | null;
+  collection_id: string | null; status: string; priority: number; stackable: boolean;
+  starts_at: string | null; ends_at: string | null; created_at: string; updated_at?: Generated<string>;
+}
+
+export interface MerchandisingBannersTable {
+  id: Generated<string>; name: string; placement: string; headline: string | null; body: string | null;
+  desktop_image_url: string; mobile_image_url: string | null; alt_text: string;
+  target_type: string; target_id: string | null; target_url: string | null;
+  status: string; priority: number; starts_at: string | null; ends_at: string | null;
+  created_at: string; updated_at?: Generated<string>;
+}
+
+export interface HomepageLayoutsTable {
+  id: Generated<string>; name: string; slug: string; status: string; priority: number;
+  starts_at: string | null; ends_at: string | null; created_at: string; updated_at?: Generated<string>;
+}
+
+export interface HomepageSectionsTable {
+  id: Generated<string>; layout_id: string; section_key: string; section_type: string;
+  title: string | null; subtitle: string | null; source_type: string; source_id: string | null;
+  source_key: string | null; config: JSONColumnType<Record<string, unknown>, Record<string, unknown>, Record<string, unknown>>; position: number;
+  enabled: boolean; created_at: string; updated_at?: Generated<string>;
+}
+
+export interface RecommendationRulesTable {
+  id: Generated<string>; name: string; placement: string; strategy: string; source_id: string | null;
+  explanation: string; result_limit: number; status: string; priority: number; starts_at: string | null;
+  ends_at: string | null; created_at: string; updated_at?: Generated<string>;
+}
+export interface RecommendationRuleProductsTable { rule_id: string; product_id: string; position: number; created_at: string }
+
 export interface DB {
   users: UsersTable;
   refresh_tokens: RefreshTokensTable;
   profiles: ProfilesTable;
   categories: CategoriesTable;
   products: ProductsTable;
+  product_categories: ProductCategoriesTable;
   product_variants: ProductVariantsTable;
   inventory: InventoryTable;
   prices: PricesTable;
@@ -357,4 +436,17 @@ export interface DB {
   return_requests: ReturnRequestsTable;
   return_line_items: ReturnLineItemsTable;
   exchange_requests: ExchangeRequestsTable;
+  merchandising_collections: MerchandisingCollectionsTable;
+  merchandising_collection_products: MerchandisingCollectionProductsTable;
+  merchandising_campaigns: MerchandisingCampaignsTable;
+  merchandising_campaign_collections: MerchandisingCampaignCollectionsTable;
+  promotions: PromotionsTable;
+  merchandising_banners: MerchandisingBannersTable;
+  homepage_layouts: HomepageLayoutsTable;
+  homepage_sections: HomepageSectionsTable;
+  recommendation_rules: RecommendationRulesTable;
+  recommendation_rule_products: RecommendationRuleProductsTable;
+  customer_addresses: CustomerAddressesTable;
+  customer_preferences: CustomerPreferencesTable;
+  customer_behavior_events: CustomerBehaviorEventsTable;
 }

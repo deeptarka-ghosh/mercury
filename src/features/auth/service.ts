@@ -5,6 +5,7 @@ import { hashPassword, verifyPassword } from '../../auth/password.js';
 import { signAccessToken, signRefreshToken } from '../../auth/tokens.js';
 import { AppError } from '../../errors/AppError.js';
 import { requestOtp, verifyOtp, clearOtp } from './otp.js';
+import { smsProvider } from '../../integrations/sms.js';
 import { verifyGoogleIdToken, verifyAppleIdToken, verifyFacebookToken } from './social.js';
 import type { SocialProvider } from './social.js';
 
@@ -134,13 +135,11 @@ export function normalizeMobile(mobile: string): string {
 /**
  * Request an OTP for a mobile number.
  */
-// eslint-disable-next-line @typescript-eslint/require-await
 export async function requestMobileOtp(mobileNumber: string): Promise<{ message: string; expiresInSeconds: number }> {
   const normalized = normalizeMobile(mobileNumber);
 
   const result = requestOtp(normalized);
-  // In production, send SMS via configured provider
-  // For now, log to stdout (dev log provider)
+  await smsProvider.sendOtp({ mobileNumber: normalized, otp: result.otp, expiresInSeconds: result.expiresInSeconds });
 
   return { message: 'OTP sent', expiresInSeconds: result.expiresInSeconds };
 }

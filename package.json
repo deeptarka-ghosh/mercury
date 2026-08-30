@@ -16,6 +16,7 @@
     "migrate": "tsx src/migrate.ts",
     "migrate:down": "tsx src/migrate.ts down",
     "migrate:list": "tsx src/migrate.ts list",
+    "seed:demo": "tsx src/seedDemo.ts",
     "clean": "rm -rf dist/"
   },
   "engines": {

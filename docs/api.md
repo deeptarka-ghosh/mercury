@@ -1,5 +1,77 @@
 # Mercury — API Reference
 
+## Customer addresses, preferences, and behavior
+
+Authenticated routes under `/account` provide saved-address CRUD and
+`GET/PUT /account/preferences`. Every query is scoped by the access-token user;
+unknown or foreign address IDs return 404. `POST /account/behavior` accepts
+product/search/collection/category events only after explicit personalization
+consent. `GET /account/recommendations/:placement` uses those signals and
+returns deterministic scores and explanations.
+
+## Recommendations
+
+`GET /recommendations/:placement` selects the highest-priority active rule for
+the optional ISO `at` instant and returns its products with rank and a shared,
+human-readable explanation. Strategies are `manual`, `collection`, `category`,
+`new_arrivals`, and `best_sellers`; every strategy has an explicit stable
+tie-breaker and none uses random ordering. Missing placements return an explicit
+empty result.
+
+Admin routes are `GET/POST /admin/recommendation-rules`, `PATCH
+/admin/recommendation-rules/:id`, and `PUT
+/admin/recommendation-rules/:id/products` for manual ordering. Writes require
+`backend_write` or `backend_admin` and are audited.
+
+## Homepage layout
+
+`GET /homepage` resolves the highest-priority active layout whose schedule
+contains the optional ISO `at` instant. It returns the layout and its enabled
+sections in explicit position order, or `{ "layout": null, "sections": [] }`.
+Supported section types cover heroes, banner strips, collection/category grids,
+product carousels, campaign/promotion features, and editorial content.
+
+Admin routes are `GET/POST /admin/homepage-layouts`, `GET/PATCH
+/admin/homepage-layouts/:id`, and atomic `PUT
+/admin/homepage-layouts/:id/sections`. The replace body is `{ "sections": [...] }`;
+array order becomes section position. Writes require `backend_write` or
+`backend_admin` and are audited.
+
+## Merchandising banners
+
+`GET /banners` returns only active banners whose schedule contains the requested
+instant. Optional query parameters are `placement` and ISO `at`. Results are
+stable: placement ascending, priority descending, then ID ascending. Each banner
+includes desktop and optional mobile media, accessible alt text, and a typed
+destination (`product`, `category`, `collection`, `campaign`, `promotion`,
+`url`, or `none`).
+
+Admin routes are `GET/POST /admin/banners` and `PATCH /admin/banners/:id`.
+Reads require a backend role; writes require `backend_write` or
+`backend_admin`, and every mutation is audited.
+
+## Campaigns and promotions
+
+`GET /campaigns` and `GET /campaigns/:slug` resolve active campaigns at an
+optional ISO `at` instant. Campaign detail returns collections in explicit
+placement order. `GET /promotions` resolves active offers by priority and stable
+ID. Admin routes under `/admin/campaigns` and `/admin/promotions` require backend
+roles; mutations require `backend_write` or `backend_admin` and are audited.
+
+## Merchandising collections
+
+Public collection resolution is deterministic and schedule-aware. Collections
+sort by priority descending, then slug and ID ascending. Products sort by their
+explicit position, then ID. `GET /collections` lists visible collections and
+`GET /collections/:slug` returns one collection with active products. Both
+accept an optional ISO `at` query for deterministic preview/testing.
+
+Admin routes are `GET/POST /admin/collections`, `PATCH
+/admin/collections/:id`, and `PUT /admin/collections/:id/products`. Reads allow
+backend roles; mutations require `backend_write` or `backend_admin` and are
+audited. The product replacement body is `{ "productIds": ["..."] }`; array
+order becomes product position.
+
 All endpoints return JSON. Error responses follow a consistent structure:
 
 ```json

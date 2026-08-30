@@ -6,7 +6,7 @@ const SEARCH_MAX_LENGTH = 200;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
-type SortOption = 'relevance' | 'price_asc' | 'price_desc' | 'newest' | 'name_asc' | 'name_desc';
+type SortOption = 'relevance' | 'merchandised' | 'price_asc' | 'price_desc' | 'newest' | 'name_asc' | 'name_desc';
 
 export interface CategoryResponse {
   id: string;
@@ -14,6 +14,8 @@ export interface CategoryResponse {
   slug: string;
   description: string | null;
   parentId: string | null;
+  audience: string | null;
+  sortOrder: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -27,6 +29,12 @@ export interface ProductResponse {
   categoryId: string | null;
   category: string | null;
   price: string | null;
+  audience: string | null;
+  material: string | null;
+  fit: string | null;
+  careInstructions: string | null;
+  badge: string | null;
+  merchandisingPriority: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -71,30 +79,32 @@ function isInStockFilterDefined(f: ProductSearchFilters): f is ProductSearchFilt
 
 export function mapCategory(row: {
   id: string; name: string; slug: string; description: string | null; parent_id: string | null;
+  audience?: string | null; sort_order?: number;
   created_at: string; updated_at: string | undefined;
 }): CategoryResponse {
-  return { id: row.id, name: row.name, slug: row.slug, description: row.description, parentId: row.parent_id, createdAt: row.created_at, updatedAt: row.updated_at ?? row.created_at };
+  return { id: row.id, name: row.name, slug: row.slug, description: row.description, parentId: row.parent_id, audience: row.audience ?? null, sortOrder: row.sort_order ?? 0, createdAt: row.created_at, updatedAt: row.updated_at ?? row.created_at };
 }
 
 export function mapProduct(row: {
   id: string; name: string; slug: string; description: string | null; status: string;
   category_id: string | null; category_name: string | null; price: string | null;
+  audience?: string | null; material?: string | null; fit?: string | null; care_instructions?: string | null; badge?: string | null; merchandising_priority?: number;
   created_at: string; updated_at: string | undefined;
 }): ProductResponse {
-  return { id: row.id, name: row.name, slug: row.slug, description: row.description, status: row.status, categoryId: row.category_id, category: row.category_name, price: row.price, createdAt: row.created_at, updatedAt: row.updated_at ?? row.created_at };
+  return { id: row.id, name: row.name, slug: row.slug, description: row.description, status: row.status, categoryId: row.category_id, category: row.category_name, price: row.price, audience: row.audience ?? null, material: row.material ?? null, fit: row.fit ?? null, careInstructions: row.care_instructions ?? null, badge: row.badge ?? null, merchandisingPriority: row.merchandising_priority ?? 0, createdAt: row.created_at, updatedAt: row.updated_at ?? row.created_at };
 }
 
 export async function listCategories(): Promise<CategoryResponse[]> {
   const db = getDatabase();
-  const rows = await db.selectFrom('categories').select(['categories.id', 'categories.name', 'categories.slug', 'categories.description', 'categories.parent_id', 'categories.created_at', 'categories.updated_at']).orderBy('name').execute();
+  const rows = await db.selectFrom('categories').select(['categories.id', 'categories.name', 'categories.slug', 'categories.description', 'categories.parent_id', 'categories.audience', 'categories.sort_order', 'categories.created_at', 'categories.updated_at']).orderBy('sort_order').orderBy('name').orderBy('id').execute();
   return rows.map(mapCategory);
 }
 
 export async function getCategoryBySlug(slug: string): Promise<{ category: CategoryResponse; products: ProductResponse[] }> {
   const db = getDatabase();
-  const category = await db.selectFrom('categories').select(['categories.id', 'categories.name', 'categories.slug', 'categories.description', 'categories.parent_id', 'categories.created_at', 'categories.updated_at']).where('slug', '=', slug).executeTakeFirst();
+  const category = await db.selectFrom('categories').select(['categories.id', 'categories.name', 'categories.slug', 'categories.description', 'categories.parent_id', 'categories.audience', 'categories.sort_order', 'categories.created_at', 'categories.updated_at']).where('slug', '=', slug).executeTakeFirst();
   if (!category) throw AppError.notFound('Category not found');
-  const products = await db.selectFrom('products').leftJoin('categories', 'categories.id', 'products.category_id').leftJoin('prices', 'prices.product_id', 'products.id').select(['products.id', 'products.name', 'products.slug', 'products.description', 'products.status', 'products.category_id', 'categories.name as category_name', sql<string | null>`CAST(prices.amount AS TEXT)`.as('price'), 'products.created_at', 'products.updated_at']).where('products.category_id', '=', category.id).where('products.status', '=', 'active').orderBy('products.name').orderBy('products.id').execute();
+  const products = await db.selectFrom('products').leftJoin('categories', 'categories.id', 'products.category_id').leftJoin('prices', 'prices.product_id', 'products.id').select(['products.id', 'products.name', 'products.slug', 'products.description', 'products.status', 'products.category_id', 'products.audience', 'products.material', 'products.fit', 'products.care_instructions', 'products.badge', 'products.merchandising_priority', 'categories.name as category_name', sql<string | null>`CAST(prices.amount AS TEXT)`.as('price'), 'products.created_at', 'products.updated_at']).where('products.category_id', '=', category.id).where('products.status', '=', 'active').orderBy('products.merchandising_priority', 'desc').orderBy('products.name').orderBy('products.id').execute();
   return { category: mapCategory(category), products: products.map(mapProduct) };
 }
 
@@ -113,7 +123,7 @@ export async function listProducts(filters: ProductSearchFilters = {}): Promise<
     .leftJoin('categories', 'categories.id', 'products.category_id')
     .leftJoin('prices', 'prices.product_id', 'products.id')
     .leftJoin('inventory', 'inventory.product_id', 'products.id')
-    .select(['products.id', 'products.name', 'products.slug', 'products.description', 'products.status', 'products.category_id', 'categories.name as category_name', sql<string | null>`CAST(prices.amount AS TEXT)`.as('price'), 'products.created_at', 'products.updated_at'])
+    .select(['products.id', 'products.name', 'products.slug', 'products.description', 'products.status', 'products.category_id', 'products.audience', 'products.material', 'products.fit', 'products.care_instructions', 'products.badge', 'products.merchandising_priority', 'categories.name as category_name', sql<string | null>`CAST(prices.amount AS TEXT)`.as('price'), 'products.created_at', 'products.updated_at'])
     .where('products.status', '=', 'active');
 
   if (filters.category) query = query.where('categories.slug', '=', filters.category);
@@ -122,13 +132,14 @@ export async function listProducts(filters: ProductSearchFilters = {}): Promise<
   if (isInStockFilterDefined(filters)) query = query.where((eb) => eb('inventory.quantity', '>', 0).or('inventory.quantity', 'is', null));
 
   const sortOrders: Record<string, string> = {
+    merchandised: `products.merchandising_priority DESC, products.name ASC, products.id ASC`,
     price_asc: `prices.amount ASC NULLS LAST, products.name ASC, products.id ASC`,
     price_desc: `prices.amount DESC NULLS LAST, products.name ASC, products.id ASC`,
     newest: `products.created_at DESC, products.name ASC, products.id ASC`,
     name_asc: `products.name ASC, products.id ASC`,
     name_desc: `products.name DESC, products.id ASC`,
   };
-  const sortClause = sortOrders[filters.sort ?? 'name_asc'] ?? sortOrders.name_asc!;
+  const sortClause = sortOrders[filters.sort ?? 'merchandised'] ?? sortOrders.merchandised!;
   query = query.orderBy(sql.raw(sortClause) as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
   // ---- Count query (SAME filters) ----
@@ -153,7 +164,7 @@ export async function listProducts(filters: ProductSearchFilters = {}): Promise<
  */
 export async function getProductBySlug(slug: string): Promise<ProductDetailResponse> {
   const db = getDatabase();
-  const row = await db.selectFrom('products').leftJoin('categories', 'categories.id', 'products.category_id').leftJoin('prices', 'prices.product_id', 'products.id').select(['products.id', 'products.name', 'products.slug', 'products.description', 'products.status', 'products.category_id', 'categories.name as category_name', sql<string | null>`CAST(prices.amount AS TEXT)`.as('price'), 'products.created_at', 'products.updated_at']).where('products.slug', '=', slug).where('products.status', '=', 'active').executeTakeFirst();
+  const row = await db.selectFrom('products').leftJoin('categories', 'categories.id', 'products.category_id').leftJoin('prices', 'prices.product_id', 'products.id').select(['products.id', 'products.name', 'products.slug', 'products.description', 'products.status', 'products.category_id', 'products.audience', 'products.material', 'products.fit', 'products.care_instructions', 'products.badge', 'products.merchandising_priority', 'categories.name as category_name', sql<string | null>`CAST(prices.amount AS TEXT)`.as('price'), 'products.created_at', 'products.updated_at']).where('products.slug', '=', slug).where('products.status', '=', 'active').executeTakeFirst();
   if (!row) throw AppError.notFound('Product not found');
 
   const variants = await db
@@ -211,7 +222,7 @@ export async function searchProducts(filters: ProductSearchFilters): Promise<Pro
     .leftJoin('categories', 'categories.id', 'products.category_id')
     .leftJoin('prices', 'prices.product_id', 'products.id')
     .leftJoin('inventory', 'inventory.product_id', 'products.id')
-    .select(['products.id', 'products.name', 'products.slug', 'products.description', 'products.status', 'products.category_id', 'categories.name as category_name', sql<string | null>`CAST(prices.amount AS TEXT)`.as('price'), 'products.created_at', 'products.updated_at'])
+    .select(['products.id', 'products.name', 'products.slug', 'products.description', 'products.status', 'products.category_id', 'products.audience', 'products.material', 'products.fit', 'products.care_instructions', 'products.badge', 'products.merchandising_priority', 'categories.name as category_name', sql<string | null>`CAST(prices.amount AS TEXT)`.as('price'), 'products.created_at', 'products.updated_at'])
     .where('products.status', '=', 'active')
     .where((eb) => eb('products.name', 'ilike', pattern).or('products.description', 'ilike', pattern));
 
@@ -230,6 +241,7 @@ export async function searchProducts(filters: ProductSearchFilters): Promise<Pro
         .orderBy('products.name', 'asc')
         .orderBy('products.id', 'asc');
       break;
+    case 'merchandised': query = query.orderBy('products.merchandising_priority', 'desc').orderBy('products.name', 'asc').orderBy('products.id', 'asc'); break;
     case 'price_asc': query = query.orderBy('prices.amount', 'asc').orderBy('products.name', 'asc').orderBy('products.id', 'asc'); break;
     case 'price_desc': query = query.orderBy('prices.amount', 'desc').orderBy('products.name', 'asc').orderBy('products.id', 'asc'); break;
     case 'newest': query = query.orderBy('products.created_at', 'desc').orderBy('products.name', 'asc').orderBy('products.id', 'asc'); break;
