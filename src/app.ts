@@ -72,8 +72,8 @@ export function createApp(): express.Application {
   app.use(notificationsRouter);
   app.use(reviewsRouter);
   app.use(wishlistRouter);
-  app.use(adminRouter);
   app.use(adminAuthRouter);
+  app.use(adminRouter);
   app.use(mediaRouter);
   app.use(collectionsRouter);
   app.use(campaignsRouter);

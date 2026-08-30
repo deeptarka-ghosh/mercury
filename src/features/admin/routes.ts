@@ -54,6 +54,14 @@ import {
 
 const router = Router();
 
+// Public, deliberately non-sensitive branding/locale projection for storefronts.
+router.get('/settings/store', async (_req, res, next) => {
+  try {
+    const settings = await getStoreSettings();
+    res.json({ storeName: settings.storeName, defaultCurrency: settings.defaultCurrency, countryCode: settings.countryCode, timezone: settings.timezone, locale: settings.locale, supportEmail: settings.supportEmail, supportMobile: settings.supportMobile });
+  } catch (error) { next(error); }
+});
+
 // All admin routes require authentication + at least one backend role
 router.use('/admin', authenticate, requireAnyRole(
   'backend_read', 'backend_write', 'backend_admin', 'user_management',

@@ -45,6 +45,7 @@ beforeAll(async () => {
     RETURNING id
   `.execute(db);
   const smartphoneId = prodResult.rows[0]!.id;
+  await sql`UPDATE products SET audience = 'men' WHERE id = ${smartphoneId}`.execute(db);
 
   await sql`
     INSERT INTO products (name, slug, description, status, category_id, created_at, updated_at)
@@ -179,6 +180,13 @@ describe('GET /products', () => {
 
     const body = res.body as { products: Array<unknown> };
     expect(body.products.length).toBe(0);
+  });
+
+  it('filters deterministically by clothing audience', async () => {
+    const res = await supertest(app).get('/products?audience=men').expect(200);
+    const body = res.body as { products: Array<{ slug: string; audience: string | null }>; total: number };
+    expect(body.total).toBe(1);
+    expect(body.products).toEqual([expect.objectContaining({ slug: 'smartphone', audience: 'men' })]);
   });
 });
 

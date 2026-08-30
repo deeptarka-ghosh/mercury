@@ -4,7 +4,7 @@ A production-grade ecommerce backend built with **TypeScript**, **Express 5**, a
 
 ## Status
 
-- **Application**: Feature-complete (20 modules)
+- **Application**: Complete local three-repository commerce platform (merchandising, customer data, admin and storefront contracts)
 - **Stage A**: Production readiness — security hardening, rate limiting, Helmet, config validation — complete
 - **Stage B**: Deployment plan documented — `docs/deployment.md`, `docs/operations.md`
 - **Stage C**: Codebase documentation — this document and `docs/`
@@ -88,6 +88,7 @@ curl http://localhost:3000/health
 | `pnpm run migrate` | Run pending database migrations |
 | `pnpm run migrate:down` | Revert one migration |
 | `pnpm run migrate:list` | List migration status |
+| `pnpm run seed:demo` | Idempotently create the realistic clothing catalog and demo identities |
 | `pnpm run clean` | Remove dist/ |
 
 ## Documentation
@@ -118,8 +119,8 @@ mercury/
 │   ├── middleware/            # Request logging + rate limiting
 │   ├── routes/               # Health endpoint
 │   ├── features/             # Domain modules (routes + service per module)
-│   ├── migrations/           # 31 ordered migrations
-│   └── __tests__/            # 26 integration test files
+│   ├── migrations/           # 38 ordered migrations
+│   └── __tests__/            # 33 integration test files
 ├── docs/                     # Documentation
 ├── .env.example
 ├── tsconfig.json / tsconfig.build.json

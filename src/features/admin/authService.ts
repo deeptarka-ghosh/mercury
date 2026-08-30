@@ -285,7 +285,7 @@ export async function requestAdminMobileOtp(
   const normalized = normalizeMobile(mobileNumber);
   const result = requestOtp(normalized);
 
-  logger.info({ userId, mobile: maskMobile(normalized), otp: result.otp }, 'Admin mobile verification OTP');
+  await smsProvider.sendOtp({ mobileNumber: normalized, otp: result.otp, expiresInSeconds: result.expiresInSeconds });
 
   return { message: 'OTP sent', expiresInSeconds: result.expiresInSeconds };
 }

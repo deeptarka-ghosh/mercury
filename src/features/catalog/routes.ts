@@ -20,7 +20,7 @@ const router = Router();
  */
 router.get('/products/search', async (req, res, next) => {
   try {
-    const { q, category, minPrice, maxPrice, inStock, sort, limit, offset } = req.query;
+    const { q, category, audience, minPrice, maxPrice, inStock, sort, limit, offset } = req.query;
 
     const filters: Record<string, unknown> = {};
 
@@ -32,6 +32,7 @@ router.get('/products/search', async (req, res, next) => {
       filters.q = q;
     }
     if (typeof category === 'string') filters.category = category;
+    if (typeof audience === 'string') filters.audience = audience;
     if (typeof minPrice === 'string') {
       const num = Number(minPrice);
       if (Number.isNaN(num) || num < 0) {
@@ -112,11 +113,12 @@ router.get('/categories/:slug', async (req, res, next) => {
  */
 router.get('/products', async (req, res, next) => {
   try {
-    const { category, minPrice, maxPrice, inStock, sort, limit, offset } = req.query;
+    const { category, audience, minPrice, maxPrice, inStock, sort, limit, offset } = req.query;
 
     const filters: Record<string, unknown> = {};
 
     if (typeof category === 'string') filters.category = category;
+    if (typeof audience === 'string') filters.audience = audience;
     if (typeof minPrice === 'string') {
       const num = Number(minPrice);
       if (Number.isNaN(num) || num < 0) {

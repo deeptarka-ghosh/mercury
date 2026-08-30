@@ -65,6 +65,7 @@ export interface ProductListResponse {
 export interface ProductSearchFilters {
   q?: string;
   category?: string;
+  audience?: string;
   minPrice?: number;
   maxPrice?: number;
   inStock?: boolean;
@@ -127,6 +128,7 @@ export async function listProducts(filters: ProductSearchFilters = {}): Promise<
     .where('products.status', '=', 'active');
 
   if (filters.category) query = query.where('categories.slug', '=', filters.category);
+  if (filters.audience) query = query.where('products.audience', '=', filters.audience);
   if (filters.minPrice !== undefined) query = query.where(sql`prices.amount`, '>=', filters.minPrice);
   if (filters.maxPrice !== undefined) query = query.where(sql`prices.amount`, '<=', filters.maxPrice);
   if (isInStockFilterDefined(filters)) query = query.where((eb) => eb('inventory.quantity', '>', 0).or('inventory.quantity', 'is', null));
@@ -151,6 +153,7 @@ export async function listProducts(filters: ProductSearchFilters = {}): Promise<
     .where('products.status', '=', 'active');
 
   if (filters.category) countQuery = countQuery.where('categories.slug', '=', filters.category);
+  if (filters.audience) countQuery = countQuery.where('products.audience', '=', filters.audience);
   if (filters.minPrice !== undefined) countQuery = countQuery.where(sql`prices.amount`, '>=', filters.minPrice);
   if (filters.maxPrice !== undefined) countQuery = countQuery.where(sql`prices.amount`, '<=', filters.maxPrice);
   if (isInStockFilterDefined(filters)) countQuery = countQuery.where((eb) => eb('inventory.quantity', '>', 0).or('inventory.quantity', 'is', null));
